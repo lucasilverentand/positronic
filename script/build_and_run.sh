@@ -19,6 +19,10 @@ if [[ "$MODE" != build ]]; then
     if ! pgrep -x "$APP_NAME" >/dev/null && ! pgrep -x MacModelAPI >/dev/null; then break; fi
     sleep 0.2
   done
+  if pgrep -x "$APP_NAME" >/dev/null || pgrep -x MacModelAPI >/dev/null; then
+    echo 'The previous app is still shutting down. No second instance was launched.' >&2
+    exit 1
+  fi
 fi
 SWIFT_ARGS=(--package-path "$ROOT_DIR")
 if [[ -n "${MODEL_API_SCRATCH_PATH:-}" ]]; then SWIFT_ARGS+=(--scratch-path "$MODEL_API_SCRATCH_PATH"); fi

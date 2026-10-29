@@ -60,10 +60,21 @@ public struct LocalModelEngine: ModelEngine {
                                        "options": .object(["num_predict": .number(Double(value.maxTokens ?? 600))])]
         if let instructions = value.instructions { body["system"] = .string(instructions) }
         if let schema = value.schema { body["format"] = schema }
+        if let think = value.think { body["think"] = think }
+        else if let metadata = try? await call("api/show", value: .object(["model": .string(value.model)]), decode: JSONValue.self),
+                case .array(let modes) = metadata.object?["thinking"]?.object?["values"], modes.contains(.bool(false)) {
+            // Prefer a bounded final answer when this model explicitly supports it.
+            body["think"] = .bool(false)
+        }
         let result = try await call("api/generate", value: .object(body), decode: JSONValue.self)
         guard result.object?["model"]?.string == value.model, result.object?["done"]?.bool == true,
               let text = result.object?["response"]?.string else { throw ModelAPIError.invalid("Local generation response is incomplete or has a different model.") }
-        let content = value.schema == nil ? nil : try JSONDecoder().decode(JSONValue.self, from: Data(text.utf8))
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw ModelAPIError.limit("The model produced no final answer within maxTokens. Increase the budget or choose a supported think mode.")
+        }
+        let content: JSONValue?
+        do { content = value.schema == nil ? nil : try JSONDecoder().decode(JSONValue.self, from: Data(text.utf8)) }
+        catch { throw ModelAPIError.unavailable("The model returned incomplete structured output. Increase maxTokens or choose a supported think mode.") }
         return .init(model: value.model, text: text, content: content,
                      usage: .init(input: result.object?["prompt_eval_count"]?.numberValue.flatMap(Int.init(exactly:)),
                                   output: result.object?["eval_count"]?.numberValue.flatMap(Int.init(exactly:))))

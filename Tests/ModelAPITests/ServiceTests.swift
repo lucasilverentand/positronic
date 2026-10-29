@@ -4,8 +4,9 @@ import XCTest
 @testable import ModelService
 
 private struct FixtureEngine: ModelEngine {
+    var text = "Synthetic response"
     func models() async -> [ModelInfo] { [.init(id: "fixture", capability: "generation", available: true, detail: "Synthetic")] }
-    func generate(_ value: GenerationRequest) async throws -> GenerationResponse { .init(model: value.model, text: "Synthetic response") }
+    func generate(_ value: GenerationRequest) async throws -> GenerationResponse { .init(model: value.model, text: text) }
     func decide(_ value: DecisionRequest) async throws -> DecisionResponse { .init(model: value.model, answers: [:]) }
 }
 
@@ -49,6 +50,18 @@ final class ServiceTests: XCTestCase, @unchecked Sendable {
         request.body = Data("{".utf8)
         let malformed = await router.handle(request); XCTAssertEqual(malformed.status, 400)
     }
+    func testModelSettingsCanUpdateWithoutRestartingTheRouter() async throws {
+        let (keys, folder) = try vault(); defer { try? FileManager.default.removeItem(at: folder) }
+        let token = try await keys.create(name: "Hot configuration fixture")
+        let router = ModelRouter(keys: keys, engine: FixtureEngine())
+        let request = HTTPRequest(method: "POST", target: "/v1/generate", headers: ["authorization": "Bearer " + token, "content-type": "application/json"], body: try JSONEncoder().encode(GenerationRequest(model: "fixture", prompt: "Synthetic")))
+        let before = await router.handle(request)
+        XCTAssertEqual(try JSONDecoder().decode(GenerationResponse.self, from: before.body).text, "Synthetic response")
+        await router.update(engine: FixtureEngine(text: "Updated model configuration"))
+        let after = await router.handle(request)
+        XCTAssertEqual(after.status, 200)
+        XCTAssertEqual(try JSONDecoder().decode(GenerationResponse.self, from: after.body).text, "Updated model configuration")
+    }
     func testParserRejectsAmbiguousFraming() throws {
         XCTAssertThrowsError(try HTTPParser.parse(Data("POST /v1/generate HTTP/1.1\r\nContent-Length: 1\r\nContent-Length: 2\r\n\r\na".utf8)))
         XCTAssertThrowsError(try HTTPParser.parse(Data("POST /v1/generate HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n".utf8)))
@@ -78,8 +91,12 @@ final class ServiceTests: XCTestCase, @unchecked Sendable {
         var configuration = ServiceConfiguration(); configuration.generationModels = ["fixture:small"]
         let engine = try LocalModelEngine(configuration: configuration) { wire in
             XCTAssertEqual(wire.url?.host, "127.0.0.1")
+            if wire.url?.path == "/api/show" {
+                return (Data(#"{"thinking":{"values":[false,true]}}"#.utf8), HTTPURLResponse(url: wire.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+            }
             let body = try JSONDecoder().decode(JSONValue.self, from: XCTUnwrap(wire.httpBody))
             XCTAssertEqual(body.object?["stream"], .bool(false))
+            XCTAssertEqual(body.object?["think"], .bool(false))
             return (Data(#"{"model":"fixture:small","response":"Synthetic","done":true,"prompt_eval_count":5,"eval_count":2}"#.utf8), HTTPURLResponse(url: wire.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
         }
         let response = try await engine.generate(.init(model: "fixture:small", prompt: "Synthetic"))

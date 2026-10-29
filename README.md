@@ -42,11 +42,26 @@ swift build
 swift test
 ```
 
+## App pages
+
+**Models** manages installed models, explicit downloads and API enable switches.
+**Playground** runs a quick local generation without saving prompts.
+**API & Keys** controls serving and client credentials.
+**Settings** contains startup, runtime and network options.
+Downloads and model enable switches work while the API is running; changing a
+model allowlist updates new requests without interrupting accepted work.
+
 ## Set up models
 
 Apple availability appears automatically. Choose **Use installed Ollama** to connect to Ollama on this Mac, or enter another loopback runtime URL. The model library discovers installed models, reads their capabilities and offers explicit API enable switches. Browse Generation, Decisions and Embeddings for additional models. Choose **Download** to install one through the local runtime, with progress and cancellation; enable it for API clients after installation. Starting the API and refreshing the list never download models. Cloud tags and discovered remote model aliases are excluded.
 
 The initial library includes Qwen 3.5, Gemma 4, Llama 3.2, Mistral, DeepSeek R1 and Qwen Coder for generation; Clef, Clef Flash, Nimble and Tev1 for decisions; and EmbeddingGemma and Nomic Embed Text for embeddings. Any other compatible installed local model can be enabled using its exact tag under Advanced model tags. Model licenses and memory requirements are linked from each library entry. Downloaded weights remain outside Git and the app bundle.
+
+For a fresh setup, choose **Prepare local runtime**. This explicitly downloads
+the pinned Ollama 0.40.12 runtime, verifies its archive checksum and Apple
+signature, and installs it in Purple Matter's private model folder. Model
+weights remain a separate explicit download. Enable **Start my local runtime
+when the app opens** to restore it before automatic API startup.
 
 Alternatively, choose a prepared folder with `runtime/ollama` and `models/`, then
 press **Start local runtime**. The app runs that binary on the configured loopback
@@ -112,3 +127,16 @@ and Ollama’s [generation](https://docs.ollama.com/api/generate) and
 [System One](https://docs.ollama.com/api/systemone) and [embeddings](https://docs.ollama.com/api/embed) contracts.
 
 The Purple Matter rename retains the original bundle identifier and private data folder so existing settings, keys and signing trust remain valid.
+
+## Live API check
+
+After creating a client key in API & Keys and saving it in a private file, run:
+
+```sh
+python3 script/smoke_api.py --key-file /path/to/client.key
+```
+
+The check exercises authenticated discovery, Apple and Qwen structured generation,
+Clef decisions and embedding batches using synthetic text. Model IDs can be
+changed with its flags. It prints receipts and timings without printing the key
+or vector contents. These are functional checks, not model-quality benchmarks.

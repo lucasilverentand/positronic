@@ -3,9 +3,10 @@ import ModelAPI
 
 public actor ModelRouter {
     private let keys: APIKeys
-    private let engine: any ModelEngine
+    private var engine: any ModelEngine
     private var active = 0
     public init(keys: APIKeys, engine: any ModelEngine) { self.keys = keys; self.engine = engine }
+    public func update(engine: any ModelEngine) { self.engine = engine }
     public func handle(_ request: HTTPRequest) async -> HTTPResponse {
         // The service is for API clients. Browser origins are intentionally unsupported.
         guard request.headers["origin"] == nil, await keys.accepts(request.bearer) else { return .error("API key required.", status: 401) }

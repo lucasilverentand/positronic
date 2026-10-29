@@ -6,13 +6,22 @@ public struct GenerationRequest: Codable, Sendable {
     public var instructions: String?
     public var schema: JSONValue?
     public var maxTokens: Int?
-    public init(model: String, prompt: String, instructions: String? = nil, schema: JSONValue? = nil, maxTokens: Int? = nil) {
+    public var think: JSONValue?
+    public init(model: String, prompt: String, instructions: String? = nil, schema: JSONValue? = nil, maxTokens: Int? = nil, think: JSONValue? = nil) {
         self.model = model; self.prompt = prompt; self.instructions = instructions; self.schema = schema; self.maxTokens = maxTokens
+        self.think = think
     }
     public func validate() throws {
         guard !model.isEmpty, !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               (1...4096).contains(maxTokens ?? 600), prompt.utf8.count + (instructions?.utf8.count ?? 0) <= 64_000 else {
             throw ModelAPIError.invalid("Supply a model, a prompt up to 64 KB, and maxTokens between 1 and 4096.")
+        }
+        if let think {
+            switch think {
+            case .bool, .null: break
+            case .string(let level) where !level.isEmpty && level.count <= 40: break
+            default: throw ModelAPIError.invalid("think must be a boolean, a supported thinking level, or null.")
+            }
         }
     }
 }

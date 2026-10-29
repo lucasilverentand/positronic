@@ -18,7 +18,7 @@ hide Apple’s independent availability. Backend discovery is read-only.
 ```
 
 `model` and `prompt` are required. `instructions`, `schema` and `maxTokens` are
-optional. Default maxTokens is 600; valid range is 1–4096. Prompt and instructions
+optional. `think` may be a boolean, a model-supported level string, or null. Default maxTokens is 600; valid range is 1–4096. Prompt and instructions
 together are limited to 64 KB. Models may enforce smaller context limits.
 
 ```json
@@ -29,6 +29,13 @@ With `schema`, `text` contains JSON and `content` contains the decoded value.
 Apple’s supported subset includes objects with properties and required fields,
 strings with optional enums, numbers, integers, booleans, arrays with item schemas
 and optional minItems/maxItems, and nullable types on macOS 26.4 or later.
+When `think` is omitted for Ollama, the service reads the model's advertised
+thinking controls and requests no thinking output if that model supports it.
+Otherwise it preserves the model default. Explicit `think: null` preserves the
+model default, and a supported string requests that named level. Reasoning-only
+or truncated output returns an actionable error instead of an empty success or
+an invalid-request error. See [Ollama thinking controls](https://docs.ollama.com/capabilities/thinking).
+
 Other JSON Schema constraints are not guaranteed by this initial API. Ollama
 receives `schema` as its structured-output `format`. Consumers must validate any
 application-specific constraints before acting on results.

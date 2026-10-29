@@ -31,7 +31,7 @@ struct ModelLibraryView: View {
                             }.font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Toggle("Available to API clients", isOn: Binding(get: { store.isEnabled(model.id, capability: category) }, set: { store.setEnabled(model.id, capability: category, enabled: $0) }))
+                        Toggle("Available to API clients", isOn: Binding(get: { store.isEnabled(model.id, capability: category) }, set: { enabled in Task { await store.setEnabled(model.id, capability: category, enabled: enabled) } }))
                             .toggleStyle(.switch).fixedSize()
                     }.padding(.vertical, 3)
                 }

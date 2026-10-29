@@ -10,8 +10,9 @@ public struct ServiceConfiguration: Codable, Sendable {
     public var embeddingModels: [String] = []
     public var assetsPath = ""
     public var startAPIOnLaunch = false
+    public var startRuntimeOnLaunch = false
     public init() {}
-    private enum CodingKeys: String, CodingKey { case port, allowNetwork, ollamaURL, generationModels, decisionModels, embeddingModels, assetsPath, startAPIOnLaunch }
+    private enum CodingKeys: String, CodingKey { case port, allowNetwork, ollamaURL, generationModels, decisionModels, embeddingModels, assetsPath, startAPIOnLaunch, startRuntimeOnLaunch }
     public init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         port = try values.decode(UInt16.self, forKey: .port)
@@ -22,6 +23,7 @@ public struct ServiceConfiguration: Codable, Sendable {
         embeddingModels = try values.decodeIfPresent([String].self, forKey: .embeddingModels) ?? []
         assetsPath = try values.decode(String.self, forKey: .assetsPath)
         startAPIOnLaunch = try values.decode(Bool.self, forKey: .startAPIOnLaunch)
+        startRuntimeOnLaunch = try values.decodeIfPresent(Bool.self, forKey: .startRuntimeOnLaunch) ?? false
     }
     public static func isLocalModel(_ name: String) -> Bool {
         let tag = name.split(separator: ":").last?.lowercased() ?? ""

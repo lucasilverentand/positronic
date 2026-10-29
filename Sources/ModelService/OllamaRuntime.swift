@@ -9,7 +9,7 @@ public actor OllamaRuntime {
     public init() {}
     deinit { if process?.isRunning == true { process?.terminate() }; try? log?.close() }
     public func isRunning() -> Bool { process?.isRunning == true }
-    public func start(assets: URL, endpoint: URL) throws {
+    public func start(assets: URL, endpoint: URL) async throws {
         guard process?.isRunning != true else { return }
         guard endpoint.host == "127.0.0.1", let port = endpoint.port, (1025...65535).contains(port),
               FileManager.default.isExecutableFile(atPath: assets.appendingPathComponent("runtime/ollama").path),
@@ -38,8 +38,20 @@ public actor OllamaRuntime {
             "OLLAMA_NO_CLOUD": "1", "OLLAMA_NOPRUNE": "1", "OLLAMA_NUM_PARALLEL": "1",
             "OLLAMA_MAX_LOADED_MODELS": "1", "OLLAMA_CONTEXT_LENGTH": "8192", "OLLAMA_KEEP_ALIVE": "5m"]
         owned.standardOutput = handle; owned.standardError = handle
-        do { try owned.run(); process = owned; log = handle }
-        catch { try? handle.close(); throw error }
+        do {
+            try owned.run(); process = owned; log = handle
+            for _ in 0..<100 {
+                try Task.checkCancellation()
+                guard process === owned, owned.isRunning else { throw ModelAPIError.unavailable("The local runtime stopped before it was ready. Check its local log.") }
+                var request = URLRequest(url: endpoint.appendingPathComponent("api/version")); request.timeoutInterval = 1
+                if let (_, response) = try? await HTTPTransport.send(request), response.statusCode == 200 { return }
+                try await Task.sleep(for: .milliseconds(200))
+            }
+            throw ModelAPIError.unavailable("Local runtime startup timed out.")
+        } catch {
+            if process === owned { await stop() } else { try? handle.close() }
+            throw error
+        }
     }
     public func stop() async {
         guard let owned = process else { return }
