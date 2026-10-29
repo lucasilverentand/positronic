@@ -6,8 +6,8 @@ rejected. JSON errors have an `error` string. Responses use `Cache-Control: no-s
 
 ## GET /v1/models
 
-Returns an array of `{id, capability, available, detail}`. Capabilities are
-`generation`, `decision` or `embedding`. `apple` names the on-device Apple model. Ollama model
+Returns an array of `{id, capability, available, detail, execution, reasoningLevels?}`. `execution` is `local` or `applePrivateCloudCompute`; older responses may omit it. Capabilities are
+`generation`, `decision` or `embedding`. `apple` names the on-device Apple model. `apple-pcc` names optional Apple Private Cloud Compute and advertises `reasoningLevels: ["light", "moderate", "deep"]`. Its availability requires explicit app enablement, entitlement, OS readiness and remaining quota. Ollama model
 IDs are exact operator-enabled installed tags. A missing local runtime does not
 hide Apple’s independent availability. Backend discovery is read-only.
 
@@ -18,7 +18,7 @@ hide Apple’s independent availability. Backend discovery is read-only.
 ```
 
 `model` and `prompt` are required. `instructions`, `schema` and `maxTokens` are
-optional. `think` may be a boolean, a model-supported level string, or null. Default maxTokens is 600; valid range is 1–4096. Prompt and instructions
+optional. `reasoningLevel` is optional and is accepted only for `apple-pcc`, with `light`, `moderate` or `deep` (default `moderate`). `think` may be a boolean, a model-supported level string, or null. Default maxTokens is 600; valid range is 1–4096. Prompt and instructions
 together are limited to 64 KB. Models may enforce smaller context limits.
 
 ```json
@@ -35,6 +35,16 @@ Otherwise it preserves the model default. Explicit `think: null` preserves the
 model default, and a supported string requests that named level. Reasoning-only
 or truncated output returns an actionable error instead of an empty success or
 an invalid-request error. See [Ollama thinking controls](https://docs.ollama.com/capabilities/thinking).
+
+### Apple Private Cloud Compute
+
+```json
+{"model":"apple-pcc","prompt":"Explain the tradeoffs of these two approaches.","reasoningLevel":"deep","maxTokens":600}
+```
+
+PCC runs on Apple’s servers and consumes the signed-in Apple account’s daily quota. The operator must enable it explicitly in a build with Apple’s managed entitlement and an approved provisioning profile on macOS 27 or later. `apple` and local model IDs never select PCC automatically. Disabled, unentitled, quota-exhausted, network or service-unavailable requests return 503 with an `error` explanation and no fallback. Unsupported reasoning values or applying `reasoningLevel` to a local model return 400. Use `reasoningLevel`, rather than Ollama’s `think`, for PCC.
+
+PCC supports text and the same supported Apple structured-output subset described above. Response identity remains `apple-pcc`; token usage remains null when no measured value is supplied. Swift clients use a 300-second request timeout for PCC; their local-model timeout remains 120 seconds. Deeper reasoning can take longer. See [PCC setup](../README.md#optional-apple-private-cloud-compute) for eligibility, signing and activation.
 
 Other JSON Schema constraints are not guaranteed by this initial API. Ollama
 receives `schema` as its structured-output `format`. Consumers must validate any
@@ -72,8 +82,7 @@ receives `truncate: false`; oversized model contexts fail instead of silently
 truncating text. The Swift client exposes `ModelAPIClient.embed`.
 
 Model discovery and downloads are app-only operator controls. API clients cannot
-download weights, change model allowlists or select a cloud provider. Hosted
-models and Apple Private Cloud Compute are outside Positronic's scope.
+download weights, change model allowlists or enable PCC. They may select `apple-pcc` only after the operator enables it. Other hosted model providers are unsupported; Ollama cloud tags and remote aliases remain excluded from discovery.
 
 ## Bounds and lifecycle
 
@@ -81,7 +90,7 @@ HTTP bodies are bounded to 1 MB, headers to 16 KiB, responses to 1 MB. Duplicate
 headers, chunked request bodies and pipelined requests are unsupported. Up to 64
 connections and four model/discovery requests can be active. Requests beyond
 the inference limit return 429. The local Ollama request timeout is 115 seconds;
-connections close after 130 seconds. Disconnect detection during inference is
+incomplete requests close after 130 seconds, and handler work is bounded to 330 seconds after parsing. Disconnect detection during inference is
 best effort; stopping the API explicitly closes connections and cancels tasks.
 
 The API has no retries, automatic paid fallback or automatic downloads. Caller

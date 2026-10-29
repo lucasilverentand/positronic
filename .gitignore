@@ -4,3 +4,7 @@ dist/
 .DS_Store
 .env
 Config/Signing.local
+
+*.provisionprofile
+*.mobileprovision
+__pycache__/

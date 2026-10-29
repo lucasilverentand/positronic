@@ -10,11 +10,32 @@ struct ModelsPage: View {
                 HStack(spacing: 12) {
                     Image(systemName: "apple.logo").font(.title)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Apple Intelligence").font(.headline)
+                        Text("Apple Intelligence · On device").font(.headline)
                         Text(apple.detail + " · Managed by macOS").font(.callout).foregroundStyle(.secondary)
                     }
                     Spacer()
                     Label(apple.available ? "Ready" : "Unavailable", systemImage: apple.available ? "checkmark.circle.fill" : "circle").foregroundStyle(apple.available ? Color.green : .secondary)
+                }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        if let cloud = store.models.first(where: { $0.id == "apple-pcc" }) {
+            GroupBox {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Label("Apple Private Cloud Compute", systemImage: "cloud").font(.headline)
+                        Spacer()
+                        Text(cloud.available ? "Ready" : store.configuration.allowApplePCC ? "Unavailable" : "Off")
+                            .foregroundStyle(cloud.available ? Color.green : .secondary)
+                    }
+                    Text("Runs on Apple’s servers. Use light, moderate or deep reasoning for more complex requests.").font(.callout).foregroundStyle(.secondary)
+                    Toggle("Allow Private Cloud Compute for Playground and API clients", isOn: Binding(
+                        get: { store.configuration.allowApplePCC },
+                        set: { enabled in Task { await store.setApplePCC(enabled) } }
+                    )).disabled(store.managingModels)
+                    Text(cloud.detail).font(.callout).foregroundStyle(.secondary)
+                    Text("Clients must select apple-pcc explicitly. Requests to local models stay on this Mac. Apple applies a daily quota; Positronic never upgrades your plan automatically.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Link("Apple access requirements", destination: URL(string: "https://developer.apple.com/private-cloud-compute/")!)
                 }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
             }
         }

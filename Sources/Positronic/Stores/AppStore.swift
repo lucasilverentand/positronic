@@ -131,6 +131,15 @@ final class AppStore {
         do { try save(); await router?.update(engine: try makeEngine()); await refresh() }
         catch { message = error.localizedDescription }
     }
+    func setApplePCC(_ enabled: Bool) async {
+        guard !managingModels else { return }
+        var next = configuration; next.allowApplePCC = enabled
+        do {
+            let engine = try makeEngine(configuration: next)
+            try PrivateFiles.save(next, to: configURL); configuration = next
+            await router?.update(engine: engine); await refresh()
+        } catch { message = error.localizedDescription }
+    }
     func isEnabled(_ model: String, capability: ModelCapability) -> Bool {
         switch capability {
         case .generation: configuration.generationModels.contains(model)

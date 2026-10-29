@@ -14,7 +14,10 @@ public struct ModelAPIClient: Sendable {
         self.baseURL = baseURL; self.apiKey = apiKey; self.transport = transport ?? HTTPTransport.send
     }
     public func models() async throws -> [ModelInfo] { try await request("v1/models", body: Optional<String>.none) }
-    public func generate(_ value: GenerationRequest) async throws -> GenerationResponse { try await request("v1/generate", body: value) }
+    public func generate(_ value: GenerationRequest) async throws -> GenerationResponse {
+        try value.validate()
+        return try await request("v1/generate", body: value, timeout: value.model == "apple-pcc" ? 300 : 120)
+    }
     public func embed(_ value: EmbeddingRequest) async throws -> EmbeddingResponse {
         try value.validate()
         let result: EmbeddingResponse = try await request("v1/embeddings", body: value)
@@ -25,15 +28,19 @@ public struct ModelAPIClient: Sendable {
         guard result.model == value.model else { throw ModelAPIError.invalid("Model identity mismatch.") }
         try result.validate(for: value); return result
     }
-    private func request<Input: Encodable, Output: Decodable>(_ path: String, body: Input?) async throws -> Output {
-        var wire = URLRequest(url: baseURL.appendingPathComponent(path)); wire.timeoutInterval = 120
+    private func request<Input: Encodable, Output: Decodable>(_ path: String, body: Input?, timeout: TimeInterval = 120) async throws -> Output {
+        var wire = URLRequest(url: baseURL.appendingPathComponent(path)); wire.timeoutInterval = timeout
         wire.setValue("Bearer " + apiKey, forHTTPHeaderField: "Authorization")
         if let body {
             wire.httpMethod = "POST"; wire.httpBody = try JSONEncoder().encode(body)
             wire.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
         let (data, response) = try await transport(wire)
-        guard (200..<300).contains(response.statusCode) else { throw ModelAPIError.unavailable("Model API returned HTTP \(response.statusCode).") }
+        guard (200..<300).contains(response.statusCode) else {
+            let error = data.count <= 1_000_000 ? try? JSONDecoder().decode([String: String].self, from: data)["error"] : nil
+            let detail = error.flatMap { $0.utf8.count <= 4096 ? $0 : nil }
+            throw ModelAPIError.unavailable("Model API returned HTTP \(response.statusCode)." + (detail.map { " " + $0 } ?? ""))
+        }
         return try JSONDecoder().decode(Output.self, from: data)
     }
 }

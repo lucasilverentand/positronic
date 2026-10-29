@@ -18,7 +18,7 @@ struct ContentView: View {
                     if let icon = NSImage(named: "AppIcon") { Image(nsImage: icon).resizable().frame(width: 42, height: 42) }
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Positronic").font(.headline)
-                        Text("Models on your Mac").font(.caption).foregroundStyle(.secondary)
+                        Text("Your model API").font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
                 }.padding(18)
@@ -27,7 +27,7 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Label(store.running ? "API running" : store.apiStarting ? "API starting…" : "API stopped", systemImage: store.running ? "circle.fill" : "circle")
                         .foregroundStyle(store.running ? Color.green : .secondary)
-                    Text("Inference stays on this Mac.").font(.caption).foregroundStyle(.secondary)
+                    Text(store.configuration.allowApplePCC ? "Local models + optional Apple cloud" : "Local inference · Apple cloud off").font(.caption).foregroundStyle(.secondary)
                 }.frame(maxWidth: .infinity, alignment: .leading).padding(18)
             }.navigationSplitViewColumnWidth(min: 205, ideal: 235, max: 280)
         } detail: {

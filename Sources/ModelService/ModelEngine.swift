@@ -13,11 +13,11 @@ public extension ModelEngine {
 
 public struct LocalModelEngine: ModelEngine {
     private let configuration: ServiceConfiguration
-    private let apple = AppleModel()
+    private let apple: any AppleModelBackend
     private let transport: ModelAPIClient.Transport
     private let activity: ModelActivity
-    public init(configuration: ServiceConfiguration, transport: ModelAPIClient.Transport? = nil, activity: ModelActivity = .init()) throws {
-        try configuration.validate(); self.configuration = configuration; self.transport = transport ?? HTTPTransport.send; self.activity = activity
+    public init(configuration: ServiceConfiguration, transport: ModelAPIClient.Transport? = nil, activity: ModelActivity = .init(), apple: any AppleModelBackend = AppleModel()) throws {
+        try configuration.validate(); self.configuration = configuration; self.transport = transport ?? HTTPTransport.send; self.activity = activity; self.apple = apple
     }
     private func call<T: Decodable>(_ path: String, value: JSONValue? = nil, decode: T.Type) async throws -> T {
         var request = URLRequest(url: URL(string: configuration.ollamaURL)!.appendingPathComponent(path))
@@ -36,7 +36,7 @@ public struct LocalModelEngine: ModelEngine {
         let tags = try? await call("api/tags", decode: JSONValue.self)
         var installed = Set<String>()
         if case .array(let entries) = tags?.object?["models"] { installed = Set(entries.compactMap { $0.object?["name"]?.string }) }
-        var result = [await apple.status()]
+        var result = [await apple.status(), await apple.cloudStatus(enabled: configuration.allowApplePCC)]
         for (names, capability) in [(configuration.generationModels, "generation"), (configuration.decisionModels, "decision"), (configuration.embeddingModels, "embedding")] {
             result += names.map { .init(id: $0, capability: capability, available: installed.contains($0), detail: installed.contains($0) ? "Installed in the local runtime" : "Not found in the local runtime") }
         }
@@ -62,6 +62,12 @@ public struct LocalModelEngine: ModelEngine {
     private func performGeneration(_ value: GenerationRequest) async throws -> GenerationResponse {
         try value.validate()
         if value.model == "apple" { return try await apple.generate(value) }
+        if value.model == "apple-pcc" {
+            guard configuration.allowApplePCC else { throw ModelAPIError.unavailable("Apple Private Cloud Compute is disabled. Enable it in Positronic’s Models page.") }
+            let status = await apple.cloudStatus(enabled: true)
+            guard status.available else { throw ModelAPIError.unavailable(status.detail) }
+            return try await apple.generateCloud(value)
+        }
         guard configuration.generationModels.contains(value.model) else { throw ModelAPIError.invalid("This generation model is not enabled.") }
         var body: [String: JSONValue] = ["model": .string(value.model), "prompt": .string(value.prompt), "stream": .bool(false),
                                        "options": .object(["num_predict": .number(Double(value.maxTokens ?? 600))])]

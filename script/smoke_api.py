@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise real local inference without printing the API key or vector contents."""
+"""Exercise enabled model inference without printing the API key or vector contents."""
 import argparse
 import json
 from pathlib import Path
@@ -15,6 +15,8 @@ def main():
     parser.add_argument('--generation-model', default='qwen3.5:4b')
     parser.add_argument('--decision-model', default='clef-flash:9b-mxfp8')
     parser.add_argument('--embedding-model', default='embeddinggemma:latest')
+    parser.add_argument('--pcc', action='store_true', help='Also send one explicit PCC request, consuming Apple daily quota')
+    parser.add_argument('--pcc-reasoning', choices=['light', 'moderate', 'deep'], default='moderate')
     args = parser.parse_args()
     key = args.key_file.expanduser().read_text().strip()
     receipts = []
@@ -26,7 +28,7 @@ def main():
         request = urllib.request.Request(args.url.rstrip('/') + path,
                                          data=None if body is None else json.dumps(body).encode(), headers=headers)
         started = time.monotonic()
-        with urllib.request.urlopen(request, timeout=125) as response:
+        with urllib.request.urlopen(request, timeout=300 if body and body.get('model') == 'apple-pcc' else 125) as response:
             result = json.load(response)
         return result, round((time.monotonic() - started) * 1000)
 
@@ -63,6 +65,14 @@ def main():
     assert result['usage']['input_tokens'] > 0
     receipts.append({'capability': 'embedding', 'model': args.embedding_model, 'elapsedMS': elapsed, 'dimensions': dimensions})
     print(json.dumps(receipts[-1]), flush=True)
+    if args.pcc:
+        assert 'apple-pcc' in available, 'Enable PCC in a provisioned app build before testing it'
+        result, elapsed = call('/v1/generate', {'model': 'apple-pcc', 'prompt': 'Write one short greeting.',
+            'schema': schema, 'maxTokens': 128, 'reasoningLevel': args.pcc_reasoning})
+        assert result['model'] == 'apple-pcc' and result['content']['text'].strip()
+        receipts.append({'capability': 'structured generation', 'model': 'apple-pcc',
+                         'reasoningLevel': args.pcc_reasoning, 'elapsedMS': elapsed})
+        print(json.dumps(receipts[-1]), flush=True)
     print(json.dumps({'passed': True, 'authenticated': True, 'inferenceChecks': len(receipts)}), flush=True)
 
 

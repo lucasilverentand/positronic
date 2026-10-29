@@ -4,6 +4,7 @@ import ModelAPI
 public struct ServiceConfiguration: Codable, Sendable {
     public var port: UInt16 = 18767
     public var allowNetwork = false
+    public var allowApplePCC = false
     public var ollamaURL = "http://127.0.0.1:18768"
     public var generationModels: [String] = []
     public var decisionModels: [String] = ["clef-flash:9b-mxfp8"]
@@ -12,11 +13,12 @@ public struct ServiceConfiguration: Codable, Sendable {
     public var startAPIOnLaunch = false
     public var startRuntimeOnLaunch = false
     public init() {}
-    private enum CodingKeys: String, CodingKey { case port, allowNetwork, ollamaURL, generationModels, decisionModels, embeddingModels, assetsPath, startAPIOnLaunch, startRuntimeOnLaunch }
+    private enum CodingKeys: String, CodingKey { case port, allowNetwork, allowApplePCC, ollamaURL, generationModels, decisionModels, embeddingModels, assetsPath, startAPIOnLaunch, startRuntimeOnLaunch }
     public init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         port = try values.decode(UInt16.self, forKey: .port)
         allowNetwork = try values.decode(Bool.self, forKey: .allowNetwork)
+        allowApplePCC = try values.decodeIfPresent(Bool.self, forKey: .allowApplePCC) ?? false
         ollamaURL = try values.decode(String.self, forKey: .ollamaURL)
         generationModels = try values.decode([String].self, forKey: .generationModels)
         decisionModels = try values.decode([String].self, forKey: .decisionModels)
@@ -27,7 +29,7 @@ public struct ServiceConfiguration: Codable, Sendable {
     }
     public static func isLocalModel(_ name: String) -> Bool {
         let tag = name.split(separator: ":").last?.lowercased() ?? ""
-        return !name.isEmpty && !name.contains(where: \.isWhitespace) && name != "apple" && tag != "cloud" && !tag.hasSuffix("-cloud")
+        return !name.isEmpty && !name.contains(where: \.isWhitespace) && !["apple", "apple-pcc"].contains(name) && tag != "cloud" && !tag.hasSuffix("-cloud")
     }
     public func removingModel(_ name: String) -> Self {
         var next = self

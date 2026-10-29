@@ -11,6 +11,14 @@ if [[ -z "${MODEL_API_SIGNING_IDENTITY:-}" ]]; then
 fi
 [[ -n "$MODEL_API_SIGNING_IDENTITY" ]] || { echo 'Set MODEL_API_SIGNING_IDENTITY to your Apple Development identity.' >&2; exit 1; }
 case "$MODE" in run|build|--debug|--logs|--telemetry|--verify) ;; *) echo 'Usage: script/build_and_run.sh [run|build|--debug|--logs|--telemetry|--verify]' >&2; exit 2 ;; esac
+SIGNING_ARGS=(--force --sign "$MODEL_API_SIGNING_IDENTITY" --options runtime)
+if [[ -n "${MODEL_API_PCC_PROFILE:-}" ]]; then
+  PCC_ENTITLEMENTS="${MODEL_API_SCRATCH_PATH:-$ROOT_DIR/.build}/pcc-signing/Positronic.entitlements"
+  /usr/bin/python3 "$ROOT_DIR/script/prepare_pcc_signing.py" \
+    --profile "$MODEL_API_PCC_PROFILE" --bundle-id "$BUNDLE_ID" \
+    --identity "$MODEL_API_SIGNING_IDENTITY" --output "$PCC_ENTITLEMENTS"
+  SIGNING_ARGS+=(--entitlements "$PCC_ENTITLEMENTS")
+fi
 if [[ "$MODE" != build ]]; then
   pkill -TERM -x "$APP_NAME" >/dev/null 2>&1 || true
   # Retire the earlier development process after the product rename.
@@ -25,7 +33,7 @@ if [[ "$MODE" != build ]]; then
     exit 1
   fi
 fi
-SWIFT_ARGS=(--package-path "$ROOT_DIR")
+SWIFT_ARGS=(--package-path "$ROOT_DIR" --jobs "${MODEL_API_BUILD_JOBS:-2}")
 if [[ -n "${MODEL_API_SCRATCH_PATH:-}" ]]; then SWIFT_ARGS+=(--scratch-path "$MODEL_API_SCRATCH_PATH"); fi
 swift build "${SWIFT_ARGS[@]}" --product "$APP_NAME"
 BUILD_DIR="$(swift build "${SWIFT_ARGS[@]}" --show-bin-path)"
@@ -48,7 +56,12 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<'PLIST'
 <key>NSPrincipalClass</key><string>NSApplication</string>
 </dict></plist>
 PLIST
-codesign --force --sign "$MODEL_API_SIGNING_IDENTITY" --options runtime "$APP_BUNDLE"
+if [[ -n "${MODEL_API_PCC_PROFILE:-}" ]]; then
+  cp "$MODEL_API_PCC_PROFILE" "$APP_BUNDLE/Contents/embedded.provisionprofile"
+else
+  rm -f "$APP_BUNDLE/Contents/embedded.provisionprofile"
+fi
+codesign "${SIGNING_ARGS[@]}" "$APP_BUNDLE"
 codesign --verify --strict --deep "$APP_BUNDLE"
 case "$MODE" in
   build) echo "$APP_BUNDLE" ;;

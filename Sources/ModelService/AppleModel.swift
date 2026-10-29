@@ -17,6 +17,7 @@ public actor AppleModel {
     }
     public func generate(_ request: GenerationRequest) async throws -> GenerationResponse {
         try request.validate()
+        guard request.model == "apple" else { throw ModelAPIError.invalid("Choose apple for on-device Apple Intelligence.") }
         let ready = status(); guard ready.available else { throw ModelAPIError.unavailable(ready.detail) }
         let session = LanguageModelSession(instructions: request.instructions ?? "Answer the supplied request.")
         #if compiler(>=6.4)

@@ -103,7 +103,11 @@ private actor HTTPPeer {
     init(connection: NWConnection, handler: @escaping @Sendable (HTTPRequest) async -> HTTPResponse) { self.connection = connection; self.handler = handler }
     func start() {
         receive()
-        deadline = Task { do { try await Task.sleep(for: .seconds(130)); self.close() } catch {} }
+        armDeadline(seconds: 130)
+    }
+    private func armDeadline(seconds: Int) {
+        deadline?.cancel()
+        deadline = Task { do { try await Task.sleep(for: .seconds(seconds)); self.close() } catch {} }
     }
     private func receive() {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, _, complete, error in
@@ -115,6 +119,7 @@ private actor HTTPPeer {
         if let data { buffer.append(data) }
         do {
             if let request = try HTTPParser.parse(buffer) {
+                armDeadline(seconds: 330)
                 work = Task {
                     let response = await handler(request)
                     self.send(response)

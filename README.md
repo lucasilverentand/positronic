@@ -2,11 +2,12 @@
 
 <img src="Assets/AppIcon.png" width="128" alt="Positronic icon">
 
-A small native Mac app for **local models only** that makes the models on your Mac available to local scripts
+A small native Mac app that makes local models and optional **Apple Private Cloud Compute** available to local scripts
 and external systems through one authenticated HTTP API.
 
 - **Apple Intelligence:** on-device generation through Apple Foundation Models,
   including structured output with a supported JSON Schema subset.
+- **Apple Private Cloud Compute:** optional generation with light, moderate or deep reasoning on Apple’s servers, through an entitled macOS 27 build.
 - **Local models:** generation through an operator-installed Ollama runtime.
 - **Decision models:** typed choice questions through Ollama System One, including
   Clef-Flash and other installed compatible decision models. Responses preserve
@@ -45,7 +46,7 @@ swift test
 ## App pages
 
 **Models** manages downloads, memory loading, removal and API enable switches.
-**Playground** runs a quick local generation without saving prompts.
+**Playground** runs generation without saving prompts, with explicit cloud labeling and PCC reasoning controls.
 **API & Keys** controls serving and client credentials.
 **Settings** contains startup, runtime and network options.
 Downloads and model enable switches work while the API is running; changing a
@@ -79,6 +80,22 @@ The prepared Clef-Flash asset folder from Seven can be selected directly; it is
 not copied into the repository or app. This app uses its own backend port and
 does not change Seven’s running local test service or operational model routing.
 Avoid running multiple large models simultaneously on a memory-constrained Mac.
+
+## Optional Apple Private Cloud Compute
+
+PCC is a separate model, `apple-pcc`, and is off by default, including when loading older settings. Enable **Allow Private Cloud Compute for Playground and API clients** on the Models page when using a provisioned build. API clients must select `apple-pcc` explicitly; `apple` always uses the on-device model and Ollama tags retain their local routing. There is no automatic cloud fallback. A failed PCC request is returned as an error.
+
+The Playground exposes light, moderate and deep reasoning when PCC is selected. The API accepts `reasoningLevel` with the same values and defaults to `moderate`. Text and the supported structured-output schema subset are available. Model discovery labels execution as `local` or `applePrivateCloudCompute` and advertises PCC reasoning levels. Availability includes entitlement, OS readiness and Apple quota checks. Near-limit, quota-exhaustion, network and service failures have actionable messages. The app does not buy subscriptions or increase quota automatically; quotas and plan terms are controlled by Apple.
+
+PCC requires **macOS 27**, a build made with **Xcode 27 / Swift 6.4 or later**, and Apple’s managed `com.apple.developer.private-cloud-compute` entitlement. Apple currently requires App Store Small Business Program enrollment, fewer than two million first-time app downloads, and entitlement approval. See [Apple’s eligibility and distribution requirements](https://developer.apple.com/private-cloud-compute/) for current terms and supported testing/distribution paths. Adding the entitlement locally cannot grant access.
+
+After Apple grants access, register/enable PCC for the existing `nl.lucasilverentand.mac-model-api` identifier and obtain a macOS provisioning profile covering the signing certificate and this exact app. Keep the profile outside Git. Point the ignored `Config/Signing.local` at it, or supply:
+
+```sh
+MODEL_API_PCC_PROFILE='/absolute/path/to/approved.provisionprofile' ./script/build_and_run.sh --verify
+```
+
+The build script checks the profile’s PCC grant, exact application identifier, team, platform, expiration and signing certificate before stopping the running app. It then embeds the profile and signs with the required entitlements. Without that option, the normal signed local app still builds and runs, and PCC reports that its entitlement is missing. The approved-profile build path and live PCC inference must be verified once access is granted. Builds default to two compiler jobs; override with `MODEL_API_BUILD_JOBS` if needed.
 
 ## Call the API
 
@@ -118,8 +135,8 @@ remote access. Networking, tunnels and public hosting are not managed by this ap
 Browser-origin requests are rejected, and no permissive CORS policy is installed.
 
 The initial API is nonstreaming, text-only and stateless. It does not execute
-tools or maintain chat history. It has no silent model fallback, Private Cloud
-Compute integration, cloud provider credential store or automatic model downloads.
+tools or maintain chat history. It has no silent model fallback, general cloud provider
+credential store or automatic model downloads.
 Unknown token usage is returned as null rather than estimated.
 
 ## Sources and license
@@ -144,6 +161,8 @@ The check exercises authenticated discovery, Apple and Qwen structured generatio
 Clef decisions and embedding batches using synthetic text. Model IDs can be
 changed with its flags. It prints receipts and timings without printing the key
 or vector contents. These are functional checks, not model-quality benchmarks.
+
+After PCC is provisioned and enabled, add `--pcc --pcc-reasoning moderate` to explicitly include one structured cloud request. That consumes Apple daily quota; normal smoke runs never send cloud requests. The native app needs an active API key created by its operator for this test.
 
 ## Icon assets
 
