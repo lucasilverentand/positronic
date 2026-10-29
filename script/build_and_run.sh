@@ -2,16 +2,24 @@
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MODE="${1:-run}"
-APP_NAME=MacModelAPI
+APP_NAME=PurpleMatter
 BUNDLE_ID=nl.lucasilverentand.mac-model-api
-APP_BUNDLE="$ROOT_DIR/dist/Mac Model API.app"
+APP_BUNDLE="$ROOT_DIR/dist/Purple Matter.app"
 if [[ -f "$ROOT_DIR/Config/Signing.local" ]]; then source "$ROOT_DIR/Config/Signing.local"; fi
 if [[ -z "${MODEL_API_SIGNING_IDENTITY:-}" ]]; then
   MODEL_API_SIGNING_IDENTITY="$(security find-identity -v -p codesigning | sed -n 's/.*"\(Apple Development: [^"]*\)"/\1/p' | head -1)"
 fi
 [[ -n "$MODEL_API_SIGNING_IDENTITY" ]] || { echo 'Set MODEL_API_SIGNING_IDENTITY to your Apple Development identity.' >&2; exit 1; }
 case "$MODE" in run|build|--debug|--logs|--telemetry|--verify) ;; *) echo 'Usage: script/build_and_run.sh [run|build|--debug|--logs|--telemetry|--verify]' >&2; exit 2 ;; esac
-if [[ "$MODE" != build ]]; then pkill -x "$APP_NAME" >/dev/null 2>&1 || true; fi
+if [[ "$MODE" != build ]]; then
+  pkill -TERM -x "$APP_NAME" >/dev/null 2>&1 || true
+  # Retire the earlier development process after the product rename.
+  pkill -TERM -x MacModelAPI >/dev/null 2>&1 || true
+  for ATTEMPT in {1..30}; do
+    if ! pgrep -x "$APP_NAME" >/dev/null && ! pgrep -x MacModelAPI >/dev/null; then break; fi
+    sleep 0.2
+  done
+fi
 SWIFT_ARGS=(--package-path "$ROOT_DIR")
 if [[ -n "${MODEL_API_SCRATCH_PATH:-}" ]]; then SWIFT_ARGS+=(--scratch-path "$MODEL_API_SCRATCH_PATH"); fi
 swift build "${SWIFT_ARGS[@]}" --product "$APP_NAME"
@@ -24,9 +32,9 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-<key>CFBundleExecutable</key><string>MacModelAPI</string>
+<key>CFBundleExecutable</key><string>PurpleMatter</string>
 <key>CFBundleIdentifier</key><string>nl.lucasilverentand.mac-model-api</string>
-<key>CFBundleName</key><string>Mac Model API</string>
+<key>CFBundleName</key><string>Purple Matter</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>0.1.0</string>
@@ -41,7 +49,7 @@ case "$MODE" in
   build) echo "$APP_BUNDLE" ;;
   run) /usr/bin/open -n "$APP_BUNDLE" ;;
   --debug) lldb -- "$APP_BUNDLE/Contents/MacOS/$APP_NAME" ;;
-  --logs) /usr/bin/open -n "$APP_BUNDLE"; /usr/bin/log stream --info --style compact --predicate 'process == "MacModelAPI"' ;;
-  --telemetry) /usr/bin/open -n "$APP_BUNDLE"; /usr/bin/log stream --info --style compact --predicate 'process == "MacModelAPI"' ;;
+  --logs) /usr/bin/open -n "$APP_BUNDLE"; /usr/bin/log stream --info --style compact --predicate 'process == "PurpleMatter"' ;;
+  --telemetry) /usr/bin/open -n "$APP_BUNDLE"; /usr/bin/log stream --info --style compact --predicate 'process == "PurpleMatter"' ;;
   --verify) /usr/bin/open -n "$APP_BUNDLE"; sleep 1; pgrep -x "$APP_NAME" >/dev/null ;;
 esac

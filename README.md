@@ -1,9 +1,9 @@
-# Mac Model API
+# Purple Matter
 
-<img src="Assets/AppIcon.png" width="128" alt="Mac Model API icon">
+<img src="Assets/AppIcon.png" width="128" alt="Purple Matter icon">
 
-A small native Mac app that makes the models on your Mac available to local scripts
-and external systems through one authenticated HTTP API. The name is provisional.
+A small native Mac app for **local models only** that makes the models on your Mac available to local scripts
+and external systems through one authenticated HTTP API.
 
 - **Apple Intelligence:** on-device generation through Apple Foundation Models,
   including structured output with a supported JSON Schema subset.
@@ -11,6 +11,7 @@ and external systems through one authenticated HTTP API. The name is provisional
 - **Decision models:** typed choice questions through Ollama System One, including
   Clef-Flash and other installed compatible decision models. Responses preserve
   measured usage and validated probabilities.
+- **Embeddings:** local text vectors for search, retrieval and similarity matching.
 
 One Swift executable contains the app and API. Create and revoke API keys in the
 app, choose enabled models, and start or stop the service. A menu bar control keeps
@@ -28,7 +29,7 @@ language, enabled Apple Intelligence, and its system model to be ready.
 ./script/build_and_run.sh
 ```
 
-This builds and signs `dist/Mac Model API.app` and launches the bundle. The Codex
+This builds and signs `dist/Purple Matter.app` and launches the bundle. The Codex
 Run action uses this same script. Select a specific development identity with
 `MODEL_API_SIGNING_IDENTITY`, or an ignored `Config/Signing.local` file. The bundle
 identity remains `nl.lucasilverentand.mac-model-api` across rebuilds. The script
@@ -43,10 +44,9 @@ swift test
 
 ## Set up models
 
-Apple availability appears automatically. To use Ollama, enter the loopback URL
-of an existing local service and add the exact installed model tags under
-Generation models or Decision models. No models are downloaded when starting
-the API or refreshing the list. Cloud model tags are rejected.
+Apple availability appears automatically. Choose **Use installed Ollama** to connect to Ollama on this Mac, or enter another loopback runtime URL. The model library discovers installed models, reads their capabilities and offers explicit API enable switches. Browse Generation, Decisions and Embeddings for additional models. Choose **Download** to install one through the local runtime, with progress and cancellation; enable it for API clients after installation. Starting the API and refreshing the list never download models. Cloud tags and discovered remote model aliases are excluded.
+
+The initial library includes Qwen 3.5, Gemma 4, Llama 3.2, Mistral, DeepSeek R1 and Qwen Coder for generation; Clef, Clef Flash, Nimble and Tev1 for decisions; and EmbeddingGemma and Nomic Embed Text for embeddings. Any other compatible installed local model can be enabled using its exact tag under Advanced model tags. Model licenses and memory requirements are linked from each library entry. Downloaded weights remain outside Git and the app bundle.
 
 Alternatively, choose a prepared folder with `runtime/ollama` and `models/`, then
 press **Start local runtime**. The app runs that binary on the configured loopback
@@ -100,7 +100,7 @@ Browser-origin requests are rejected, and no permissive CORS policy is installed
 
 The initial API is nonstreaming, text-only and stateless. It does not execute
 tools or maintain chat history. It has no silent model fallback, Private Cloud
-Compute integration, cloud provider credential store or automatic model installer.
+Compute integration, cloud provider credential store or automatic model downloads.
 Unknown token usage is returned as null rather than estimated.
 
 ## Sources and license
@@ -109,4 +109,6 @@ MIT. Extracted reusable contracts are attributed in [NOTICE](NOTICE). Models and
 runtimes retain their own licenses. Implementation follows Apple’s
 [Foundation Models documentation](https://developer.apple.com/documentation/foundationmodels)
 and Ollama’s [generation](https://docs.ollama.com/api/generate) and
-[System One](https://docs.ollama.com/api/systemone) contracts.
+[System One](https://docs.ollama.com/api/systemone) and [embeddings](https://docs.ollama.com/api/embed) contracts.
+
+The Purple Matter rename retains the original bundle identifier and private data folder so existing settings, keys and signing trust remain valid.

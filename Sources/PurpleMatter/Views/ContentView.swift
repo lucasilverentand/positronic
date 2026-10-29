@@ -15,11 +15,11 @@ struct ContentView: View {
                         Image(systemName: "cpu").font(.largeTitle).foregroundStyle(.tint)
                     }
                     VStack(alignment: .leading) {
-                        Text("Mac Model API").font(.largeTitle.bold())
+                        Text("Purple Matter").font(.largeTitle.bold())
                         Text("A simple API for the models on your Mac.").foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Button(store.running ? "Stop API" : "Start API") { Task { await store.toggleAPI() } }.buttonStyle(.borderedProminent).disabled(store.busy)
+                    Button(store.running ? "Stop API" : "Start API") { Task { await store.toggleAPI() } }.buttonStyle(.borderedProminent).disabled(store.busy || store.downloading != nil)
                 }
                 GroupBox("Connection") {
                     VStack(alignment: .leading, spacing: 12) {
@@ -44,24 +44,32 @@ struct ContentView: View {
                             }
                         }
                         Divider()
-                        TextField("Ollama URL", text: $store.configuration.ollamaURL)
-                        ModelNamesField(title: "Generation models (comma separated)", values: $store.configuration.generationModels)
-                        ModelNamesField(title: "Decision models (comma separated)", values: $store.configuration.decisionModels)
+                        ModelLibraryView(store: store)
+                        Divider()
+                        HStack {
+                            TextField("Ollama URL", text: $store.configuration.ollamaURL)
+                            Button("Use installed Ollama") { Task { await store.connectToOllama() } }
+                        }.disabled(store.downloading != nil)
+                        DisclosureGroup("Advanced model tags") {
+                            ModelNamesField(title: "Generation models (comma separated)", values: $store.configuration.generationModels)
+                            ModelNamesField(title: "Decision models (comma separated)", values: $store.configuration.decisionModels)
+                            ModelNamesField(title: "Embedding models (comma separated)", values: $store.configuration.embeddingModels)
+                        }.disabled(store.downloading != nil)
                         HStack {
                             Text(store.configuration.assetsPath.isEmpty ? "Optional: choose a prepared model folder" : store.configuration.assetsPath).lineLimit(1).truncationMode(.middle).foregroundStyle(.secondary)
-                            Spacer(); Button("Choose folder…") { choosingAssets = true }
+                            Spacer(); Button("Choose folder…") { choosingAssets = true }.disabled(store.downloading != nil)
                         }
                         HStack {
-                            Button(store.runtimeRunning ? "Stop local runtime" : "Start local runtime") { Task { await store.toggleRuntime() } }.disabled(store.busy)
+                            Button(store.runtimeRunning ? "Stop local runtime" : "Start local runtime") { Task { await store.toggleRuntime() } }.disabled(store.busy || store.downloading != nil)
                             Button("Save & refresh") { store.persist(); Task { await store.refresh() } }
                         }
-                        Text("Use an existing Ollama service, or choose a folder containing runtime/ollama and models/. The app starts only that runtime, with cloud inference disabled. Models are never downloaded automatically.")
+                        Text("Use an existing local Ollama service, or choose a prepared model folder. Downloads start only when you choose Download. Hosted models are not supported.")
                             .font(.callout).foregroundStyle(.secondary)
                     }.padding(10)
                 }.disabled(store.running)
                 APIKeysView(store: store)
                 if !store.message.isEmpty { Text(store.message).foregroundStyle(.red).textSelection(.enabled) }
-                Text("GET /v1/models   ·   POST /v1/generate   ·   POST /v1/decisions").font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled)
+                Text("GET /v1/models   ·   POST /v1/generate   ·   POST /v1/decisions   ·   POST /v1/embeddings").font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled)
             }.padding(28)
         }
         .fileImporter(isPresented: $choosingAssets, allowedContentTypes: [.folder]) { result in

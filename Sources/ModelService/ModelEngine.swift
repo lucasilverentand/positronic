@@ -5,6 +5,10 @@ public protocol ModelEngine: Sendable {
     func models() async -> [ModelInfo]
     func generate(_ value: GenerationRequest) async throws -> GenerationResponse
     func decide(_ value: DecisionRequest) async throws -> DecisionResponse
+    func embed(_ value: EmbeddingRequest) async throws -> EmbeddingResponse
+}
+public extension ModelEngine {
+    func embed(_ value: EmbeddingRequest) async throws -> EmbeddingResponse { throw ModelAPIError.unavailable("Embeddings are unavailable in this engine.") }
 }
 
 public struct LocalModelEngine: ModelEngine {
@@ -32,10 +36,21 @@ public struct LocalModelEngine: ModelEngine {
         var installed = Set<String>()
         if case .array(let entries) = tags?.object?["models"] { installed = Set(entries.compactMap { $0.object?["name"]?.string }) }
         var result = [await apple.status()]
-        for (names, capability) in [(configuration.generationModels, "generation"), (configuration.decisionModels, "decision")] {
+        for (names, capability) in [(configuration.generationModels, "generation"), (configuration.decisionModels, "decision"), (configuration.embeddingModels, "embedding")] {
             result += names.map { .init(id: $0, capability: capability, available: installed.contains($0), detail: installed.contains($0) ? "Installed in the local runtime" : "Not found in the local runtime") }
         }
         return result
+    }
+    public func embed(_ value: EmbeddingRequest) async throws -> EmbeddingResponse {
+        try value.validate()
+        guard configuration.embeddingModels.contains(value.model) else { throw ModelAPIError.invalid("This embedding model is not enabled.") }
+        let body: JSONValue = .object(["model": .string(value.model), "input": .array(value.input.map(JSONValue.string)), "truncate": .bool(false)])
+        let raw = try await call("api/embed", value: body, decode: JSONValue.self)
+        guard let vectors = raw.object?["embeddings"] else { throw ModelAPIError.invalid("Embedding response is missing vectors.") }
+        let embeddings = try JSONDecoder().decode([[Double]].self, from: JSONEncoder().encode(vectors))
+        let result = EmbeddingResponse(model: raw.object?["model"]?.string ?? "", embeddings: embeddings,
+                                      usage: .init(input: raw.object?["prompt_eval_count"]?.numberValue.flatMap(Int.init(exactly:)), output: nil))
+        try result.validate(for: value); return result
     }
     public func generate(_ value: GenerationRequest) async throws -> GenerationResponse {
         try value.validate()

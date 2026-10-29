@@ -1,9 +1,9 @@
 // swift-tools-version: 6.0
 import PackageDescription
 let package = Package(
-    name: "MacModelAPI", platforms: [.macOS("26.0")],
+    name: "PurpleMatter", platforms: [.macOS("26.0")],
     products: [.library(name: "ModelAPI", targets: ["ModelAPI"]),
-               .executable(name: "MacModelAPI", targets: ["MacModelAPI"])],
+               .executable(name: "PurpleMatter", targets: ["PurpleMatter"])],
     targets: [.target(name: "ModelAPI"), .target(name: "ModelService", dependencies: ["ModelAPI"]),
-              .executableTarget(name: "MacModelAPI", dependencies: ["ModelAPI", "ModelService"]),
+              .executableTarget(name: "PurpleMatter", dependencies: ["ModelAPI", "ModelService"]),
               .testTarget(name: "ModelAPITests", dependencies: ["ModelAPI", "ModelService"])])

@@ -17,6 +17,7 @@ public actor ModelRouter {
             guard request.headers["content-type"]?.lowercased().split(separator: ";").first == "application/json" else { return .error("Use application/json.", status: 415) }
             switch request.path {
             case "/v1/generate": return try .json(await engine.generate(JSONDecoder().decode(GenerationRequest.self, from: request.body)))
+            case "/v1/embeddings": return try .json(await engine.embed(JSONDecoder().decode(EmbeddingRequest.self, from: request.body)))
             case "/v1/decisions", "/v1/systemone": return try .json(await engine.decide(JSONDecoder().decode(DecisionRequest.self, from: request.body)))
             default: return .error("Endpoint not found.", status: 404)
             }

@@ -15,6 +15,11 @@ public struct ModelAPIClient: Sendable {
     }
     public func models() async throws -> [ModelInfo] { try await request("v1/models", body: Optional<String>.none) }
     public func generate(_ value: GenerationRequest) async throws -> GenerationResponse { try await request("v1/generate", body: value) }
+    public func embed(_ value: EmbeddingRequest) async throws -> EmbeddingResponse {
+        try value.validate()
+        let result: EmbeddingResponse = try await request("v1/embeddings", body: value)
+        try result.validate(for: value); return result
+    }
     public func decide(_ value: DecisionRequest) async throws -> DecisionResponse {
         let result: DecisionResponse = try await request("v1/decisions", body: value)
         guard result.model == value.model else { throw ModelAPIError.invalid("Model identity mismatch.") }

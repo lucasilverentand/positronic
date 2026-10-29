@@ -7,16 +7,34 @@ public struct ServiceConfiguration: Codable, Sendable {
     public var ollamaURL = "http://127.0.0.1:18768"
     public var generationModels: [String] = []
     public var decisionModels: [String] = ["clef-flash:9b-mxfp8"]
+    public var embeddingModels: [String] = []
     public var assetsPath = ""
     public var startAPIOnLaunch = false
     public init() {}
+    private enum CodingKeys: String, CodingKey { case port, allowNetwork, ollamaURL, generationModels, decisionModels, embeddingModels, assetsPath, startAPIOnLaunch }
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        port = try values.decode(UInt16.self, forKey: .port)
+        allowNetwork = try values.decode(Bool.self, forKey: .allowNetwork)
+        ollamaURL = try values.decode(String.self, forKey: .ollamaURL)
+        generationModels = try values.decode([String].self, forKey: .generationModels)
+        decisionModels = try values.decode([String].self, forKey: .decisionModels)
+        embeddingModels = try values.decodeIfPresent([String].self, forKey: .embeddingModels) ?? []
+        assetsPath = try values.decode(String.self, forKey: .assetsPath)
+        startAPIOnLaunch = try values.decode(Bool.self, forKey: .startAPIOnLaunch)
+    }
+    public static func isLocalModel(_ name: String) -> Bool {
+        let tag = name.split(separator: ":").last?.lowercased() ?? ""
+        return !name.isEmpty && !name.contains(where: \.isWhitespace) && name != "apple" && tag != "cloud" && !tag.hasSuffix("-cloud")
+    }
     public func validate() throws {
         guard port > 1024, let url = URL(string: ollamaURL), url.scheme == "http",
               ["127.0.0.1", "localhost", "[::1]", "::1"].contains(url.host ?? ""), url.user == nil,
               (1...65535).contains(url.port ?? 80),
               url.password == nil, url.query == nil, url.fragment == nil, url.path.isEmpty || url.path == "/",
               Set(generationModels).isDisjoint(with: decisionModels),
-              (generationModels + decisionModels).allSatisfy({ !$0.isEmpty && !$0.contains(where: \.isWhitespace) && !$0.hasSuffix(":cloud") && $0 != "apple" }) else {
+              Set(embeddingModels).isDisjoint(with: generationModels + decisionModels),
+              (generationModels + decisionModels + embeddingModels).allSatisfy(Self.isLocalModel) else {
             throw ModelAPIError.invalid("Use a loopback Ollama URL, a port above 1024, and distinct local model names.")
         }
     }

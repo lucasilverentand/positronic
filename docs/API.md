@@ -7,7 +7,7 @@ rejected. JSON errors have an `error` string. Responses use `Cache-Control: no-s
 ## GET /v1/models
 
 Returns an array of `{id, capability, available, detail}`. Capabilities are
-`generation` or `decision`. `apple` names the on-device Apple model. Ollama model
+`generation`, `decision` or `embedding`. `apple` names the on-device Apple model. Ollama model
 IDs are exact operator-enabled installed tags. A missing local runtime does not
 hide Apple’s independent availability. Backend discovery is read-only.
 
@@ -49,6 +49,24 @@ must be finite, lie in [0,1], sum to one within rounding tolerance, and assign t
 selected choice a maximum probability. Confidence must be finite in [0,1]. Model
 identity and nonnegative measured token usage are required. Failed validation is
 an error; the app never substitutes a generative model or invents probabilities.
+
+## POST /v1/embeddings
+
+Send an enabled local embedding model and an array of 1–32 nonempty strings:
+
+```json
+{"model":"embeddinggemma:latest","input":["A walking journal","Notes from a hike"]}
+```
+
+Returns `{model, embeddings, usage}` with one finite numeric vector per input.
+Vectors must have consistent dimensions, model identity must match, and measured
+input-token usage must be supplied. Text inputs total at most 64 KB. The runtime
+receives `truncate: false`; oversized model contexts fail instead of silently
+truncating text. The Swift client exposes `ModelAPIClient.embed`.
+
+Model discovery and downloads are app-only operator controls. API clients cannot
+download weights, change model allowlists or select a cloud provider. Hosted
+models and Apple Private Cloud Compute are outside Purple Matter's scope.
 
 ## Bounds and lifecycle
 
