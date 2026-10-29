@@ -17,6 +17,7 @@ public struct InstalledModel: Identifiable, Sendable {
     public var capability: ModelCapability?
     public var sizeBytes: Int64?
     public var detail: String
+    public var digest: String?
 }
 public struct ModelDownloadProgress: Decodable, Sendable {
     public var status: String?
@@ -86,7 +87,7 @@ public struct ModelLibrary: Sendable {
             else { capability = Self.presets.first(where: { $0.id == name })?.capability }
             let rawDetails = metadata?.object?["details"]?.object ?? tag.object?["details"]?.object
             let description = [rawDetails?["parameter_size"]?.string, rawDetails?["quantization_level"]?.string].compactMap { $0 }.joined(separator: " · ")
-            installed.append(.init(id: name, capability: capability, sizeBytes: tag.object?["size"]?.numberValue.flatMap(Int64.init(exactly:)), detail: description))
+            installed.append(.init(id: name, capability: capability, sizeBytes: tag.object?["size"]?.numberValue.flatMap(Int64.init(exactly:)), detail: description, digest: tag.object?["digest"]?.string))
         }
         return installed.sorted { $0.id < $1.id }
     }
@@ -98,17 +99,19 @@ public struct ModelLibrary: Sendable {
         let config = URLSessionConfiguration.ephemeral; config.httpShouldSetCookies = false; config.connectionProxyDictionary = [:]
         let session = URLSession(configuration: config, delegate: HTTPTransport(), delegateQueue: nil)
         defer { session.invalidateAndCancel() }
-        let (bytes, raw) = try await session.bytes(for: request)
-        guard (raw as? HTTPURLResponse)?.statusCode == 200 else { throw ModelAPIError.unavailable("Local runtime could not download this model.") }
-        var success = false
-        for try await line in bytes.lines {
-            try Task.checkCancellation()
-            guard line.utf8.count < 64_000 else { throw ModelAPIError.limit("Invalid model download progress.") }
-            let update = try JSONDecoder().decode(ModelDownloadProgress.self, from: Data(line.utf8))
-            guard update.error == nil else { throw ModelAPIError.unavailable("The model download failed. Check runtime compatibility and available disk space.") }
-            progress(update)
-            if update.status == "success" { success = true }
-        }
-        guard success else { throw ModelAPIError.unavailable("The model download ended before completion.") }
+        try await withTaskCancellationHandler {
+            let (bytes, raw) = try await session.bytes(for: request)
+            guard (raw as? HTTPURLResponse)?.statusCode == 200 else { throw ModelAPIError.unavailable("Local runtime could not download this model.") }
+            var success = false
+            for try await line in bytes.lines {
+                try Task.checkCancellation()
+                guard line.utf8.count < 64_000 else { throw ModelAPIError.limit("Invalid model download progress.") }
+                let update = try JSONDecoder().decode(ModelDownloadProgress.self, from: Data(line.utf8))
+                guard update.error == nil else { throw ModelAPIError.unavailable("The model download failed. Check runtime compatibility and available disk space.") }
+                progress(update)
+                if update.status == "success" { success = true }
+            }
+            guard success else { throw ModelAPIError.unavailable("The model download ended before completion.") }
+        } onCancel: { session.invalidateAndCancel() }
     }
 }

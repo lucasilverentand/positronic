@@ -29,6 +29,13 @@ public struct ServiceConfiguration: Codable, Sendable {
         let tag = name.split(separator: ":").last?.lowercased() ?? ""
         return !name.isEmpty && !name.contains(where: \.isWhitespace) && name != "apple" && tag != "cloud" && !tag.hasSuffix("-cloud")
     }
+    public func removingModel(_ name: String) -> Self {
+        var next = self
+        next.generationModels.removeAll { $0 == name }
+        next.decisionModels.removeAll { $0 == name }
+        next.embeddingModels.removeAll { $0 == name }
+        return next
+    }
     public func validate() throws {
         guard port > 1024, let url = URL(string: ollamaURL), url.scheme == "http",
               ["127.0.0.1", "localhost", "[::1]", "::1"].contains(url.host ?? ""), url.user == nil,

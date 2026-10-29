@@ -15,8 +15,9 @@ public struct LocalModelEngine: ModelEngine {
     private let configuration: ServiceConfiguration
     private let apple = AppleModel()
     private let transport: ModelAPIClient.Transport
-    public init(configuration: ServiceConfiguration, transport: ModelAPIClient.Transport? = nil) throws {
-        try configuration.validate(); self.configuration = configuration; self.transport = transport ?? HTTPTransport.send
+    private let activity: ModelActivity
+    public init(configuration: ServiceConfiguration, transport: ModelAPIClient.Transport? = nil, activity: ModelActivity = .init()) throws {
+        try configuration.validate(); self.configuration = configuration; self.transport = transport ?? HTTPTransport.send; self.activity = activity
     }
     private func call<T: Decodable>(_ path: String, value: JSONValue? = nil, decode: T.Type) async throws -> T {
         var request = URLRequest(url: URL(string: configuration.ollamaURL)!.appendingPathComponent(path))
@@ -42,6 +43,9 @@ public struct LocalModelEngine: ModelEngine {
         return result
     }
     public func embed(_ value: EmbeddingRequest) async throws -> EmbeddingResponse {
+        try await activity.withInference { try await performEmbedding(value) }
+    }
+    private func performEmbedding(_ value: EmbeddingRequest) async throws -> EmbeddingResponse {
         try value.validate()
         guard configuration.embeddingModels.contains(value.model) else { throw ModelAPIError.invalid("This embedding model is not enabled.") }
         let body: JSONValue = .object(["model": .string(value.model), "input": .array(value.input.map(JSONValue.string)), "truncate": .bool(false)])
@@ -53,6 +57,9 @@ public struct LocalModelEngine: ModelEngine {
         try result.validate(for: value); return result
     }
     public func generate(_ value: GenerationRequest) async throws -> GenerationResponse {
+        try await activity.withInference { try await performGeneration(value) }
+    }
+    private func performGeneration(_ value: GenerationRequest) async throws -> GenerationResponse {
         try value.validate()
         if value.model == "apple" { return try await apple.generate(value) }
         guard configuration.generationModels.contains(value.model) else { throw ModelAPIError.invalid("This generation model is not enabled.") }
@@ -80,6 +87,9 @@ public struct LocalModelEngine: ModelEngine {
                                   output: result.object?["eval_count"]?.numberValue.flatMap(Int.init(exactly:))))
     }
     public func decide(_ value: DecisionRequest) async throws -> DecisionResponse {
+        try await activity.withInference { try await performDecision(value) }
+    }
+    private func performDecision(_ value: DecisionRequest) async throws -> DecisionResponse {
         guard configuration.decisionModels.contains(value.model), !value.questions.isEmpty, value.questions.count <= 32,
               value.questions.values.allSatisfy({ $0.type == "choice" && !$0.instructions.isEmpty && (2...26).contains($0.criteria.count) }) else {
             throw ModelAPIError.invalid("Enable this decision model and supply 1–32 choice questions, each with 2–26 options.")

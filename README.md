@@ -44,7 +44,7 @@ swift test
 
 ## App pages
 
-**Models** manages installed models, explicit downloads and API enable switches.
+**Models** manages downloads, memory loading, removal and API enable switches.
 **Playground** runs a quick local generation without saving prompts.
 **API & Keys** controls serving and client credentials.
 **Settings** contains startup, runtime and network options.
@@ -54,6 +54,10 @@ model allowlist updates new requests without interrupting accepted work.
 ## Set up models
 
 Apple availability appears automatically. Choose **Use installed Ollama** to connect to Ollama on this Mac, or enter another loopback runtime URL. The model library discovers installed models, reads their capabilities and offers explicit API enable switches. Browse Generation, Decisions and Embeddings for additional models. Choose **Download** to install one through the local runtime, with progress and cancellation; enable it for API clients after installation. Starting the API and refreshing the list never download models. Cloud tags and discovered remote model aliases are excluded.
+
+Use **Load** to prepare an installed model in memory, and **Unload** to release its memory while keeping its files. Memory status refreshes while the Models page is open; aliases sharing the same weights share this status. Enabled models reload on demand when requested by an API client. Explicit loads stay warm for up to 30 minutes, subject to runtime memory pressure and other requests; the prepared runtime allows one loaded model at a time.
+
+Choose **Remove from Mac…** in a model’s menu to confirm deletion. The app disables that tag for API clients, unloads it, deletes it through the runtime and verifies it is gone. Shared files needed by other installed tags remain. A failed deletion stays disabled and reports an error. Management asks you to wait while API or Playground inference is in progress and is unavailable during downloads. Apple Intelligence is managed by macOS and has no app-level load or delete controls.
 
 The initial library includes Qwen 3.5, Gemma 4, Llama 3.2, Mistral, DeepSeek R1 and Qwen Coder for generation; Clef, Clef Flash, Nimble and Tev1 for decisions; and EmbeddingGemma and Nomic Embed Text for embeddings. Any other compatible installed local model can be enabled using its exact tag under Advanced model tags. Model licenses and memory requirements are linked from each library entry. Downloaded weights remain outside Git and the app bundle.
 
@@ -144,3 +148,13 @@ or vector contents. These are functional checks, not model-quality benchmarks.
 ## Icon assets
 
 `Assets/AppIconArtwork.png` holds the editable artwork reference. Run `script/build_icon.sh` to rebuild the normalized 1024-pixel master and complete native icon set. The visible tile is 824 pixels with 100-pixel transparent margins, matching measured Calculator, Notes and Contacts icons. Native continuous corners remove edge debris and the gray rim.
+
+## Live model lifecycle check
+
+With the private local runtime running and at least one installed model of each type:
+
+```sh
+POSITRONIC_LIVE_LIFECYCLE=1 swift test --filter LiveLifecycleTests
+```
+
+This creates temporary aliases for generation, decision and embedding models, then checks load, unload, inference after unload, reload and removal using the production service components. It removes only its temporary aliases and verifies the original model tags and digests remain. Synthetic prompts are used; this check does not create API keys or change app settings.

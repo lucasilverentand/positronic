@@ -80,6 +80,32 @@ final class ModelLibraryTests: XCTestCase, @unchecked Sendable {
             let result = try await engine.decide(request); XCTAssertEqual(result, expected)
         }
     }
+    func testCancellingDownloadClosesAnUnresponsivePull() async throws {
+        let listening = expectation(description: "Listener ready")
+        let requested = expectation(description: "Pull received")
+        let cancelled = expectation(description: "Pull cancelled")
+        let suspension = DownloadSuspension()
+        let server = try LoopbackServer(port: 0) { _ in
+            requested.fulfill()
+            await suspension.hold()
+            return .init(body: Data())
+        }
+        let serving = Task { try await server.run { listening.fulfill() } }
+        defer { server.stop(); serving.cancel() }
+        await fulfillment(of: [listening], timeout: 5)
+        var config = ServiceConfiguration(); config.ollamaURL = "http://127.0.0.1:\(try XCTUnwrap(server.port))"
+        let library = try ModelLibrary(configuration: config)
+        let pull = Task {
+            defer { cancelled.fulfill() }
+            do { try await library.download(ModelLibrary.presets[0]) { _ in }; XCTFail("Cancelled pull cannot succeed") }
+            catch { XCTAssertTrue(Task.isCancelled) }
+        }
+        await fulfillment(of: [requested], timeout: 5)
+        pull.cancel()
+        await fulfillment(of: [cancelled], timeout: 2)
+        await suspension.release()
+        await pull.value
+    }
     func testExplicitDownloadRequiresACompletionReceipt() async throws {
         for complete in [true, false] {
             let ready = expectation(description: "Download fixture ready")
@@ -100,4 +126,10 @@ final class ModelLibraryTests: XCTestCase, @unchecked Sendable {
             server.stop(); try await task.value
         }
     }
+}
+
+private actor DownloadSuspension {
+    private var continuation: CheckedContinuation<Void, Never>?
+    func hold() async { await withCheckedContinuation { continuation = $0 } }
+    func release() { continuation?.resume(); continuation = nil }
 }

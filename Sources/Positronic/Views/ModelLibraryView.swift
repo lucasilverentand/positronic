@@ -22,22 +22,13 @@ struct ModelLibraryView: View {
             if !store.installedModels.isEmpty {
                 Text("Installed on this Mac").font(.headline)
                 ForEach(store.installedModels.filter { $0.capability == category }) { model in
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text(model.id).font(.headline)
-                            HStack {
-                                if !model.detail.isEmpty { Text(model.detail) }
-                                if let bytes = model.sizeBytes { Text(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)) }
-                            }.font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Toggle("Available to API clients", isOn: Binding(get: { store.isEnabled(model.id, capability: category) }, set: { enabled in Task { await store.setEnabled(model.id, capability: category, enabled: enabled) } }))
-                            .toggleStyle(.switch).fixedSize()
-                    }.padding(.vertical, 3)
+                    InstalledModelRow(store: store, model: model)
                 }
                 ForEach(store.installedModels.filter { $0.capability == nil }) { model in
-                    HStack { Text(model.id); Spacer(); Text("Set its role in Advanced model tags").font(.caption).foregroundStyle(.secondary) }
+                    InstalledModelRow(store: store, model: model)
                 }
+                Text("Unload frees model memory and keeps the download. An enabled model loads again when an API client requests it. Remove deletes the download and disables API access; files shared with another installed model are kept.")
+                    .font(.caption).foregroundStyle(.secondary)
                 Divider()
             }
             Text("More models").font(.headline)
@@ -54,7 +45,7 @@ struct ModelLibraryView: View {
                     if store.installedModels.contains(where: { $0.id == preset.id }) {
                         Label("Installed", systemImage: "checkmark.circle.fill").foregroundStyle(.secondary)
                     } else {
-                        Button("Download") { store.download(preset) }.disabled(store.downloading != nil || !store.modelLibraryMessage.isEmpty)
+                        Button("Download") { store.download(preset) }.disabled(!store.canManageModels || !store.modelLibraryMessage.isEmpty)
                     }
                 }.padding(.vertical, 4)
             }

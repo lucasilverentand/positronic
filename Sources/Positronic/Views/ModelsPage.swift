@@ -11,7 +11,7 @@ struct ModelsPage: View {
                     Image(systemName: "apple.logo").font(.title)
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Apple Intelligence").font(.headline)
-                        Text(apple.detail).font(.callout).foregroundStyle(.secondary)
+                        Text(apple.detail + " · Managed by macOS").font(.callout).foregroundStyle(.secondary)
                     }
                     Spacer()
                     Label(apple.available ? "Ready" : "Unavailable", systemImage: apple.available ? "checkmark.circle.fill" : "circle").foregroundStyle(apple.available ? Color.green : .secondary)
@@ -31,5 +31,11 @@ struct ModelsPage: View {
             }
         }
         GroupBox { ModelLibraryView(store: store).padding(14) }
+            .task {
+                while !Task.isCancelled {
+                    await store.refreshLoaded()
+                    do { try await Task.sleep(for: .seconds(3)) } catch { break }
+                }
+            }
     }
 }

@@ -11,7 +11,7 @@ struct SettingsPage: View {
                 Toggle("Start at login", isOn: Binding(get: { store.loginEnabled }, set: { store.setLogin($0) }))
                 Toggle("Start API when the app opens", isOn: $store.configuration.startAPIOnLaunch).onChange(of: store.configuration.startAPIOnLaunch) { store.persist() }
                 Toggle("Start my local runtime when the app opens", isOn: $store.configuration.startRuntimeOnLaunch).onChange(of: store.configuration.startRuntimeOnLaunch) { store.persist() }
-            }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
+            }.padding(12).frame(maxWidth: .infinity, alignment: .leading).disabled(store.managingModels)
         }
         GroupBox("Local runtime") {
             VStack(alignment: .leading, spacing: 12) {
@@ -25,7 +25,7 @@ struct SettingsPage: View {
                     Button("Use installed Ollama") { Task { await store.connectToOllama() } }
                 }.disabled(store.busy || store.downloading != nil || store.running)
                 Text("Runtime connection changes require stopping the API. Model downloads and enable switches remain available while the API runs.").font(.caption).foregroundStyle(.secondary)
-            }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
+            }.padding(12).frame(maxWidth: .infinity, alignment: .leading).disabled(store.managingModels)
         }
         GroupBox("Network access") {
             VStack(alignment: .leading, spacing: 12) {
@@ -33,7 +33,7 @@ struct SettingsPage: View {
                 Toggle("Allow connections from other devices", isOn: $store.configuration.allowNetwork)
                 Text("Every request needs an API key. For remote access, use a trusted encrypted private network or an HTTPS proxy you control.").font(.callout).foregroundStyle(.secondary)
                 Button("Save connection settings") { store.persist() }
-            }.padding(12).frame(maxWidth: .infinity, alignment: .leading).disabled(store.running || store.apiStarting)
+            }.padding(12).frame(maxWidth: .infinity, alignment: .leading).disabled(store.managingModels).disabled(store.running || store.apiStarting)
         }
         DisclosureGroup("Advanced model tags") {
             VStack(spacing: 12) {
@@ -43,6 +43,7 @@ struct SettingsPage: View {
                 Button("Save model tags") { Task { await store.applyModelSettings() } }
             }.padding(.top, 10)
         }
+        .disabled(store.managingModels)
         .fileImporter(isPresented: $choosingAssets, allowedContentTypes: [.folder]) { result in
             switch result { case .success(let url): store.configuration.assetsPath = url.path; store.persist(); case .failure(let error): store.message = error.localizedDescription }
         }

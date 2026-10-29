@@ -23,7 +23,7 @@ struct PlaygroundView: View {
                     if generating { ProgressView().controlSize(.small); Text("Generating on this Mac…").foregroundStyle(.secondary) }
                     Spacer()
                     if generating { Button("Cancel") { work?.cancel() } }
-                    Button("Generate") { generate() }.buttonStyle(.borderedProminent).disabled(generating || prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Button("Generate") { generate() }.buttonStyle(.borderedProminent).disabled(store.managingModels || generating || prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }.padding(12)
         }
@@ -35,7 +35,7 @@ struct PlaygroundView: View {
         let config = store.configuration, request = GenerationRequest(model: model, prompt: prompt, maxTokens: 600)
         work = Task {
             defer { generating = false; work = nil }
-            do { answer = try await LocalModelEngine(configuration: config).generate(request).text }
+            do { answer = try await store.makeEngine(configuration: config).generate(request).text }
             catch is CancellationError {} catch { self.error = error.localizedDescription }
         }
     }
