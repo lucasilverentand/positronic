@@ -5,6 +5,7 @@ struct ModelsPage: View {
     @Bindable var store: AppStore
     var discover: () -> Void
     var tryModel: (String) -> Void
+    var openAudio: () -> Void
     @State private var search = ""
     @State private var selectedID: String?
     private var models: [ManagedModel] { ManagedModel.all(in: store) }
@@ -54,7 +55,7 @@ struct ModelsPage: View {
             }.frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             Divider()
             ScrollView {
-                if let selected { ModelDetailView(store: store, model: selected, tryModel: tryModel).id(selected.id).padding(24) }
+                if let selected { ModelDetailView(store: store, model: selected, tryModel: tryModel, openAudio: openAudio).id(selected.id).padding(24) }
                 else {
                     ContentUnavailableView("Select a model", systemImage: "cpu", description: Text("Inspect its memory, API access and model details here."))
                         .padding(.top, 80)

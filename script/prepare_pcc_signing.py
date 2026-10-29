@@ -34,6 +34,7 @@ def validated_entitlements(profile, bundle_id, certificate_hash, now=None):
     if certificate_hash.upper() not in allowed:
         raise ValueError("The selected signing certificate is not permitted by this profile.")
     return {
+        "com.apple.security.device.audio-input": True,
         "com.apple.developer.private-cloud-compute": True,
         "com.apple.application-identifier": application,
         "com.apple.developer.team-identifier": team,

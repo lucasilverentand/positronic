@@ -28,7 +28,7 @@ private actor AppleFixture: AppleModelBackend {
 final class PrivateCloudComputeTests: XCTestCase, @unchecked Sendable {
     private func engine(_ fixture: AppleFixture, enabled: Bool) throws -> LocalModelEngine {
         var config = ServiceConfiguration(); config.allowApplePCC = enabled
-        return try LocalModelEngine(configuration: config, transport: { _ in
+        return try fixtureEngine(configuration: config, transport: { _ in
             XCTFail("Apple generation must not use Ollama or HTTP fallback"); throw CancellationError()
         }, apple: fixture)
     }
@@ -61,12 +61,13 @@ final class PrivateCloudComputeTests: XCTestCase, @unchecked Sendable {
     }
     func testPCCCannotBeEnabledThroughALocalAllowlist() throws {
         XCTAssertFalse(ServiceConfiguration.isLocalModel("apple-pcc"))
-        for capability in ModelCapability.allCases {
+        for capability in [ModelCapability.generation, .decision, .embedding] {
             var config = ServiceConfiguration()
             switch capability {
             case .generation: config.generationModels = ["apple-pcc"]
             case .decision: config.decisionModels = ["apple-pcc"]
             case .embedding: config.embeddingModels = ["apple-pcc"]
+            case .transcription, .speech: XCTFail("Unexpected audio capability")
             }
             XCTAssertThrowsError(try config.validate())
         }
@@ -101,7 +102,7 @@ final class PrivateCloudComputeTests: XCTestCase, @unchecked Sendable {
         let keys = try APIKeys(file: folder.appendingPathComponent("keys.json"))
         let key = try await keys.create(name: "Synthetic PCC fixture")
         let apple = AppleFixture()
-        let router = ModelRouter(keys: keys, engine: try engine(apple, enabled: true))
+        let router = fixtureRouter(keys: keys, engine: try engine(apple, enabled: true))
         let ready = expectation(description: "Cloud fixture listener")
         let listener = try LoopbackServer(port: 0) { await router.handle($0) }
         let serving = Task { try await listener.run { ready.fulfill() } }
@@ -117,7 +118,7 @@ final class PrivateCloudComputeTests: XCTestCase, @unchecked Sendable {
     func testCloudDiscoveryAndClientTimeoutAreExplicit() async throws {
         let apple = AppleFixture()
         var config = ServiceConfiguration(); config.allowApplePCC = true
-        let engine = try LocalModelEngine(configuration: config, transport: { request in
+        let engine = try fixtureEngine(configuration: config, transport: { request in
             (Data(#"{"models":[]}"#.utf8), HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
         }, apple: apple)
         let models = await engine.models()

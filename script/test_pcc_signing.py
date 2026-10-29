@@ -29,7 +29,7 @@ class PCCSigningTests(unittest.TestCase):
     def test_valid_profile_produces_only_required_entitlements(self):
         result = self.validate()
         self.assertTrue(result["com.apple.developer.private-cloud-compute"])
-        self.assertEqual(len(result), 3)
+        self.assertEqual(len(result), 4)
         self.assertNotIn("unrelated-capability", result)
 
     def test_missing_grant_wrong_app_team_or_platform_are_rejected(self):

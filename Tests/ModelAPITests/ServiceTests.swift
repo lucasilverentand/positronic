@@ -30,7 +30,7 @@ final class ServiceTests: XCTestCase, @unchecked Sendable {
     }
     func testRouterRequiresAKeyRejectsBrowserOriginsAndRevokedKeys() async throws {
         let (keys, folder) = try vault(); defer { try? FileManager.default.removeItem(at: folder) }
-        let router = ModelRouter(keys: keys, engine: FixtureEngine())
+        let router = fixtureRouter(keys: keys, engine: FixtureEngine())
         let unauthorized = await router.handle(.init(method: "GET", target: "/v1/models", headers: [:], body: Data()))
         XCTAssertEqual(unauthorized.status, 401)
         let token = try await keys.create(name: "Fixture")
@@ -43,7 +43,7 @@ final class ServiceTests: XCTestCase, @unchecked Sendable {
     }
     func testRouterGenerationAndMalformedBody() async throws {
         let (keys, folder) = try vault(); defer { try? FileManager.default.removeItem(at: folder) }
-        let token = try await keys.create(name: "Fixture"), router = ModelRouter(keys: keys, engine: FixtureEngine())
+        let token = try await keys.create(name: "Fixture"), router = fixtureRouter(keys: keys, engine: FixtureEngine())
         var request = HTTPRequest(method: "POST", target: "/v1/generate", headers: ["authorization": "Bearer " + token, "content-type": "application/json"], body: try JSONEncoder().encode(GenerationRequest(model: "fixture", prompt: "Synthetic")))
         let valid = await router.handle(request); XCTAssertEqual(valid.status, 200)
         XCTAssertEqual(try JSONDecoder().decode(GenerationResponse.self, from: valid.body).text, "Synthetic response")
@@ -53,7 +53,7 @@ final class ServiceTests: XCTestCase, @unchecked Sendable {
     func testModelSettingsCanUpdateWithoutRestartingTheRouter() async throws {
         let (keys, folder) = try vault(); defer { try? FileManager.default.removeItem(at: folder) }
         let token = try await keys.create(name: "Hot configuration fixture")
-        let router = ModelRouter(keys: keys, engine: FixtureEngine())
+        let router = fixtureRouter(keys: keys, engine: FixtureEngine())
         let request = HTTPRequest(method: "POST", target: "/v1/generate", headers: ["authorization": "Bearer " + token, "content-type": "application/json"], body: try JSONEncoder().encode(GenerationRequest(model: "fixture", prompt: "Synthetic")))
         let before = await router.handle(request)
         XCTAssertEqual(try JSONDecoder().decode(GenerationResponse.self, from: before.body).text, "Synthetic response")
@@ -79,7 +79,7 @@ final class ServiceTests: XCTestCase, @unchecked Sendable {
         let question = DecisionQuestion("Synthetic classification", choices: ["yes": "Relevant", "no": "Irrelevant"])
         let request = DecisionRequest(state: .string("Synthetic"), questions: ["answer": question])
         let invalid = DecisionResponse(model: request.model, answers: ["answer": .init(choice: "yes", probabilities: ["yes": 0.1, "no": 0.9], confidence: 0.9)], usage: .init(input: 3, output: 1))
-        let engine = try LocalModelEngine(configuration: .init()) { wire in
+        let engine = try fixtureEngine(configuration: .init()) { wire in
             XCTAssertEqual(wire.url?.path, "/v1/systemone")
             return (try JSONEncoder().encode(invalid), HTTPURLResponse(url: wire.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
         }
@@ -89,7 +89,7 @@ final class ServiceTests: XCTestCase, @unchecked Sendable {
     }
     func testLocalGenerationAndSwiftClientWireContract() async throws {
         var configuration = ServiceConfiguration(); configuration.generationModels = ["fixture:small"]
-        let engine = try LocalModelEngine(configuration: configuration) { wire in
+        let engine = try fixtureEngine(configuration: configuration) { wire in
             XCTAssertEqual(wire.url?.host, "127.0.0.1")
             if wire.url?.path == "/api/show" {
                 return (Data(#"{"thinking":{"values":[false,true]}}"#.utf8), HTTPURLResponse(url: wire.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
@@ -122,7 +122,7 @@ final class ServiceTests: XCTestCase, @unchecked Sendable {
     func testAuthenticatedHTTPGenerationRoundTripAndRevocation() async throws {
         let (keys, folder) = try vault(); defer { try? FileManager.default.removeItem(at: folder) }
         let token = try await keys.create(name: "HTTP fixture")
-        let router = ModelRouter(keys: keys, engine: FixtureEngine())
+        let router = fixtureRouter(keys: keys, engine: FixtureEngine())
         let ready = expectation(description: "Authenticated listener ready")
         let server = try LoopbackServer(port: 0) { await router.handle($0) }
         let task = Task { try await server.run { ready.fulfill() } }
@@ -142,5 +142,64 @@ final class ServiceTests: XCTestCase, @unchecked Sendable {
         let response = try await apple.generate(.init(model: "apple", prompt: "Write one short greeting.", maxTokens: 20))
         XCTAssertFalse(response.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         XCTAssertEqual(response.model, "apple")
+    }
+}
+
+private struct WaitingEngine: ModelEngine {
+    func models() async -> [ModelInfo] { [] }
+    func generate(_ value: GenerationRequest) async throws -> GenerationResponse {
+        try await Task.sleep(for: .seconds(30)); return .init(model:value.model,text:"Cancelled work must not finish")
+    }
+    func decide(_ value: DecisionRequest) async throws -> DecisionResponse { .init(model:value.model,answers:[:]) }
+}
+extension ServiceTests {
+    func testJobsAPIIsolationCancellationAndKeyRevocation() async throws {
+        let (keys,folder) = try vault(); defer { try? FileManager.default.removeItem(at:folder) }
+        let a = try await keys.create(name:"a"), b = try await keys.create(name:"b"), queue = fixtureQueue()
+        await keys.observeRevocations { await queue.revoke($0) }
+        let router = ModelRouter(keys:keys,engine:WaitingEngine(),jobs:queue)
+        func request(_ method:String,_ path:String,_ token:String,_ data:Data = Data()) -> HTTPRequest {
+            .init(method:method,target:path,headers:["authorization":"Bearer " + token,"content-type":"application/json"],body:data)
+        }
+        let body = try JSONEncoder().encode(JobSubmission(operation:"generation",request:.object(["model":.string("fixture"),"prompt":.string("Synthetic") ])))
+        let response = await router.handle(request("POST","/v1/jobs",a,body)); XCTAssertEqual(response.status,202)
+        let decoder=JSONDecoder();decoder.dateDecodingStrategy = .iso8601
+        let job = try decoder.decode(ModelJob.self,from:response.body)
+        let cross = await router.handle(request("GET","/v1/jobs/\(job.id)",b));XCTAssertEqual(cross.status,404)
+        let list = await router.handle(request("GET","/v1/jobs",b)); XCTAssertTrue(try decoder.decode([ModelJob].self,from:list.body).isEmpty)
+        let cancel = await router.handle(request("POST","/v1/jobs/\(job.id)/cancel",b));XCTAssertEqual(cancel.status,404)
+        let pending = await router.handle(request("GET","/v1/jobs/\(job.id)/result",a));XCTAssertEqual(pending.status,409)
+        let identity = await keys.identity(for:a);let owner = try XCTUnwrap(identity);try await keys.revoke(owner)
+        let cancelled = try await queue.job(job.id);XCTAssertEqual(cancelled.state,.cancelled)
+        let rejected = await router.handle(request("GET","/v1/jobs",a));XCTAssertEqual(rejected.status,401)
+        await queue.shutdown()
+    }
+}
+extension ServiceTests {
+    func testHTTPDisconnectCancelsSyncWorkButAsyncSubmissionSurvives() async throws {
+        let (keys,folder) = try vault();defer { try? FileManager.default.removeItem(at:folder) }
+        let token=try await keys.create(name:"Fixture"),queue=fixtureQueue(),ready=expectation(description:"Ready")
+        let router=ModelRouter(keys:keys,engine:WaitingEngine(),jobs:queue)
+        let server=try LoopbackServer(port:0) { await router.handle($0) }
+        let serving=Task { try await server.run { ready.fulfill() } }
+        await fulfillment(of:[ready],timeout:3)
+        defer { server.stop();serving.cancel() }
+        let client=try ModelAPIClient(baseURL:URL(string:"http://127.0.0.1:\(try XCTUnwrap(server.port))")!,apiKey:token)
+        let asyncJob=try await client.submit(.init(operation:"generation",request:.object(["model":.string("fixture"),"prompt":.string("Synthetic")])))
+        try await Task.sleep(for:.milliseconds(50))
+        let independent=try await queue.job(asyncJob.id);XCTAssertFalse(independent.state.terminal)
+        _ = try await client.cancelJob(asyncJob.id)
+        let synchronous=Task { try await client.generate(.init(model:"fixture",prompt:"Synthetic")) }
+        var id:UUID?
+        for _ in 0..<40 {
+            if let job=await queue.list().first(where:{ $0.id != asyncJob.id && $0.state == .running }) { id=job.id;break }
+            try await Task.sleep(for:.milliseconds(25))
+        }
+        XCTAssertNotNil(id);synchronous.cancel();_ = try? await synchronous.value
+        if let id {
+            for _ in 0..<40 { if try await queue.job(id).state.terminal { break };try await Task.sleep(for:.milliseconds(25)) }
+            let cancelled=try await queue.job(id);XCTAssertEqual(cancelled.state,.cancelled)
+        }
+        await queue.shutdown();server.stop();try await serving.value
     }
 }

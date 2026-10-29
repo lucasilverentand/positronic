@@ -24,7 +24,7 @@ struct ContentView: View {
                         ForEach([AppPage.models, .discover]) { page in Label(page.title, systemImage: page.symbol).tag(page) }
                     }
                     Section("Workspace") {
-                        ForEach([AppPage.playground, .api, .settings]) { page in Label(page.title, systemImage: page.symbol).tag(page) }
+                        ForEach([AppPage.playground, .audio, .jobs, .api, .settings]) { page in Label(page.title, systemImage: page.symbol).tag(page) }
                     }
                 }.listStyle(.sidebar)
                 VStack(alignment: .leading, spacing: 8) {
@@ -37,13 +37,15 @@ struct ContentView: View {
             VStack(spacing: 0) {
                 switch selection ?? .models {
                 case .models:
-                    ModelsPage(store: store, discover: { selection = .discover }, tryModel: openPlayground)
+                    ModelsPage(store: store, discover: { selection = .discover }, tryModel: openPlayground, openAudio: { selection = .audio })
                 case .discover:
                     DiscoverModelsPage(store: store)
                 default:
                     ScrollView {
                         VStack(alignment: .leading, spacing: 22) {
                             switch selection ?? .models {
+                            case .audio: AudioPage(store: store)
+                            case .jobs: JobsPage(store: store)
                             case .playground: PlaygroundView(store: store, model: $playgroundModel)
                             case .api: APIPage(store: store)
                             case .settings: SettingsPage(store: store)

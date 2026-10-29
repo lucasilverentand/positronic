@@ -11,13 +11,13 @@ if [[ -z "${MODEL_API_SIGNING_IDENTITY:-}" ]]; then
 fi
 [[ -n "$MODEL_API_SIGNING_IDENTITY" ]] || { echo 'Set MODEL_API_SIGNING_IDENTITY to your Apple Development identity.' >&2; exit 1; }
 case "$MODE" in run|build|--debug|--logs|--telemetry|--verify) ;; *) echo 'Usage: script/build_and_run.sh [run|build|--debug|--logs|--telemetry|--verify]' >&2; exit 2 ;; esac
-SIGNING_ARGS=(--force --sign "$MODEL_API_SIGNING_IDENTITY" --options runtime)
+SIGNING_ARGS=(--force --sign "$MODEL_API_SIGNING_IDENTITY" --options runtime --entitlements "$ROOT_DIR/Config/Positronic.entitlements")
 if [[ -n "${MODEL_API_PCC_PROFILE:-}" ]]; then
   PCC_ENTITLEMENTS="${MODEL_API_SCRATCH_PATH:-$ROOT_DIR/.build}/pcc-signing/Positronic.entitlements"
   /usr/bin/python3 "$ROOT_DIR/script/prepare_pcc_signing.py" \
     --profile "$MODEL_API_PCC_PROFILE" --bundle-id "$BUNDLE_ID" \
     --identity "$MODEL_API_SIGNING_IDENTITY" --output "$PCC_ENTITLEMENTS"
-  SIGNING_ARGS+=(--entitlements "$PCC_ENTITLEMENTS")
+  SIGNING_ARGS=(--force --sign "$MODEL_API_SIGNING_IDENTITY" --options runtime --entitlements "$PCC_ENTITLEMENTS")
 fi
 if [[ "$MODE" != build ]]; then
   pkill -TERM -x "$APP_NAME" >/dev/null 2>&1 || true
@@ -38,6 +38,8 @@ if [[ -n "${MODEL_API_SCRATCH_PATH:-}" ]]; then SWIFT_ARGS+=(--scratch-path "$MO
 swift build "${SWIFT_ARGS[@]}" --product "$APP_NAME"
 BUILD_DIR="$(swift build "${SWIFT_ARGS[@]}" --show-bin-path)"
 mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources"
+rm -rf "$APP_BUNDLE/Contents/Resources/Audio"
+cp -R "$ROOT_DIR/Resources/Audio" "$APP_BUNDLE/Contents/Resources/Audio"
 cp "$BUILD_DIR/$APP_NAME" "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 cp "$ROOT_DIR/LICENSE" "$ROOT_DIR/NOTICE" "$APP_BUNDLE/Contents/Resources/"
 cp "$ROOT_DIR/Assets/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
@@ -53,6 +55,7 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<'PLIST'
 <key>CFBundleShortVersionString</key><string>0.1.0</string>
 <key>CFBundleVersion</key><string>1</string>
 <key>LSMinimumSystemVersion</key><string>26.0</string>
+<key>NSMicrophoneUsageDescription</key><string>Record audio for transcription entirely on this Mac.</string>
 <key>NSPrincipalClass</key><string>NSApplication</string>
 </dict></plist>
 PLIST

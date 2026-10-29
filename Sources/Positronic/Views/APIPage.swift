@@ -22,6 +22,9 @@ struct APIPage: View {
                 endpoint("POST", "/v1/generate", "Text and structured generation")
                 endpoint("POST", "/v1/decisions", "Typed decisions with probabilities")
                 endpoint("POST", "/v1/embeddings", "Vectors for search and retrieval")
+                endpoint("POST", "/v1/audio/transcriptions", "Queue local transcription")
+                endpoint("POST", "/v1/audio/speech", "Queue local speech generation")
+                endpoint("GET", "/v1/jobs", "Status, results and cancellation")
             }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
         }
     }

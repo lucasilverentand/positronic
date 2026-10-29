@@ -8,3 +8,10 @@ Apple Foundation Models is a system framework, not distributed with this project
 Ollama and model weights are separately installed operator-provided components;
 their respective licenses continue to apply. This repository contains no model
 weights, Ollama binaries, account credentials or private Seven state.
+
+Local audio is separately installed from MLX-Audio (MIT), Whisper Large V3 Turbo
+(MIT), Chatterbox Multilingual (MIT), S3TokenizerV2 and the upstream Chatterbox
+packaged default voice conditioning. Their upstream licenses and model cards
+apply. The repository contains download manifests and a hashed Python dependency
+lock, not their binaries or weights. Installed Python packages retain their own
+license metadata. See Resources/Audio/README.md for pinned provenance.

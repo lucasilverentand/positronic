@@ -5,10 +5,12 @@ import ModelAPI
 /// Optional owned runtime. Model weights and the Ollama binary stay outside the app.
 public actor OllamaRuntime {
     private var process: Process?
+    private var address: URL?
     private var log: FileHandle?
     public init() {}
     deinit { if process?.isRunning == true { process?.terminate() }; try? log?.close() }
     public func isRunning() -> Bool { process?.isRunning == true }
+    public func ownedEndpoint() -> URL? { process?.isRunning == true ? address : nil }
     public func start(assets: URL, endpoint: URL) async throws {
         guard process?.isRunning != true else { return }
         guard endpoint.host == "127.0.0.1", let port = endpoint.port, (1025...65535).contains(port),
@@ -39,7 +41,7 @@ public actor OllamaRuntime {
             "OLLAMA_MAX_LOADED_MODELS": "1", "OLLAMA_CONTEXT_LENGTH": "8192", "OLLAMA_KEEP_ALIVE": "5m"]
         owned.standardOutput = handle; owned.standardError = handle
         do {
-            try owned.run(); process = owned; log = handle
+            try owned.run(); process = owned; self.address = endpoint; log = handle
             for _ in 0..<100 {
                 try Task.checkCancellation()
                 guard process === owned, owned.isRunning else { throw ModelAPIError.unavailable("The local runtime stopped before it was ready. Check its local log.") }
@@ -58,6 +60,6 @@ public actor OllamaRuntime {
         if owned.isRunning { owned.terminate() }
         for _ in 0..<30 where owned.isRunning { try? await Task.sleep(for: .milliseconds(100)) }
         if owned.isRunning { kill(owned.processIdentifier, SIGKILL) }
-        if process === owned { process = nil; try? log?.close(); log = nil }
+        if process === owned { process = nil; address = nil; try? log?.close(); log = nil }
     }
 }

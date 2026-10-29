@@ -5,7 +5,7 @@ import XCTest
 
 final class ModelLibraryTests: XCTestCase, @unchecked Sendable {
     func testDiscoveryClassifiesModelsAndExcludesCloudAliases() async throws {
-        let library = try ModelLibrary(configuration: .init()) { request in
+        let library = try ModelLibrary(configuration: .init(), transport: { request in
             let body: JSONValue
             if request.url?.path == "/api/tags" {
                 body = .object(["models": .array([
@@ -27,7 +27,7 @@ final class ModelLibraryTests: XCTestCase, @unchecked Sendable {
                 }
             }
             return (try JSONEncoder().encode(body), HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
-        }
+        })
         let models = try await library.installed()
         XCTAssertEqual(Set(models.map(\.id)), Set(["qwen:local", "nimble:9b", "embed:small"]))
         XCTAssertEqual(models.first { $0.id == "nimble:9b" }?.capability, .decision)
@@ -42,7 +42,7 @@ final class ModelLibraryTests: XCTestCase, @unchecked Sendable {
     func testEveryPresetIsExplicitlyLocal() throws {
         XCTAssertGreaterThanOrEqual(ModelLibrary.presets.count, 12)
         XCTAssertEqual(Set(ModelLibrary.presets.map(\.id)).count, ModelLibrary.presets.count)
-        for preset in ModelLibrary.presets { XCTAssertTrue(ServiceConfiguration.isLocalModel(preset.id)) }
+        for preset in ModelLibrary.presets { XCTAssertTrue(ServiceConfiguration.isLocalModel(preset.id) || AudioCatalog.ids.contains(preset.id)) }
         XCTAssertFalse(ServiceConfiguration.isLocalModel("clef:27b-cloud"))
     }
     func testOldSettingsRetainKeysAndConfigurationShape() throws {
@@ -57,7 +57,7 @@ final class ModelLibraryTests: XCTestCase, @unchecked Sendable {
     }
     func testEmbeddingBackendPreservesBatchAndRefusesTruncation() async throws {
         var config = ServiceConfiguration(); config.embeddingModels = ["embedding-fixture:local"]
-        let engine = try LocalModelEngine(configuration: config) { request in
+        let engine = try fixtureEngine(configuration: config) { request in
             XCTAssertEqual(request.url?.path, "/api/embed")
             let body = try JSONDecoder().decode(JSONValue.self, from: XCTUnwrap(request.httpBody))
             XCTAssertEqual(body.object?["truncate"], .bool(false))
@@ -78,7 +78,7 @@ final class ModelLibraryTests: XCTestCase, @unchecked Sendable {
             var config = ServiceConfiguration(); config.decisionModels = [model]
             let request = DecisionRequest(state: .string("Synthetic"), model: model, questions: ["route": .init("Fixture", choices: ["yes": "Relevant", "no": "Irrelevant"])])
             let expected = DecisionResponse(model: model, answers: ["route": .init(choice: "yes", probabilities: ["yes": 0.9, "no": 0.1], confidence: 0.9)], usage: .init(input: 8, output: 1))
-            let engine = try LocalModelEngine(configuration: config) { wire in
+            let engine = try fixtureEngine(configuration: config) { wire in
                 XCTAssertEqual(wire.url?.path, "/v1/systemone")
                 return (try JSONEncoder().encode(expected), HTTPURLResponse(url: wire.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
             }
@@ -98,8 +98,8 @@ final class ModelLibraryTests: XCTestCase, @unchecked Sendable {
         let serving = Task { try await server.run { listening.fulfill() } }
         defer { server.stop(); serving.cancel() }
         await fulfillment(of: [listening], timeout: 5)
-        var config = ServiceConfiguration(); config.ollamaURL = "http://127.0.0.1:\(try XCTUnwrap(server.port))"
-        let library = try ModelLibrary(configuration: config)
+        var config = ServiceConfiguration(); config.assetsPath = FileManager.default.temporaryDirectory.path; config.ollamaURL = "http://127.0.0.1:\(try XCTUnwrap(server.port))"
+        let library = try ModelLibrary(configuration: config, capacity: { _ in 100 << 30 })
         let pull = Task {
             defer { cancelled.fulfill() }
             do { try await library.download(try XCTUnwrap(ModelLibrary.presets.first { $0.id == "qwen3.5:4b" })) { _ in }; XCTFail("Cancelled pull cannot succeed") }
@@ -124,8 +124,8 @@ final class ModelLibraryTests: XCTestCase, @unchecked Sendable {
             let task = Task { try await server.run { ready.fulfill() } }
             defer { server.stop(); task.cancel() }
             await fulfillment(of: [ready], timeout: 5)
-            var config = ServiceConfiguration(); config.ollamaURL = "http://127.0.0.1:\(try XCTUnwrap(server.port))"
-            let library = try ModelLibrary(configuration: config)
+            var config = ServiceConfiguration(); config.assetsPath = FileManager.default.temporaryDirectory.path; config.ollamaURL = "http://127.0.0.1:\(try XCTUnwrap(server.port))"
+            let library = try ModelLibrary(configuration: config, capacity: { _ in 100 << 30 })
             do { try await library.download(try XCTUnwrap(ModelLibrary.presets.first { $0.id == "qwen3.5:4b" })) { _ in }; XCTAssertTrue(complete) }
             catch { XCTAssertFalse(complete) }
             server.stop(); try await task.value

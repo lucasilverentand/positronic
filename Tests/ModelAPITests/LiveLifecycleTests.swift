@@ -19,7 +19,7 @@ final class LiveLifecycleTests: XCTestCase, @unchecked Sendable {
             let (_, response) = try await URLSession.shared.data(for: request)
             XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
         }
-        for capability in ModelCapability.allCases {
+        for capability in [ModelCapability.generation, .decision, .embedding] {
             let source = try XCTUnwrap(before.first { $0.capability == capability })
             let alias = "positronic-lifecycle:\(UUID().uuidString.lowercased())"
             try await mutate("api/copy", method: "POST", body: ["source": source.id, "destination": alias])
@@ -33,8 +33,10 @@ final class LiveLifecycleTests: XCTestCase, @unchecked Sendable {
                 // A normal request must also reload an unloaded model on demand.
                 var enabled = configuration.removingModel(alias)
                 switch capability {
+                case .transcription, .speech: fatalError("Not an Ollama model")
                 case .generation: enabled.generationModels.append(alias)
                 case .decision: enabled.decisionModels.append(alias)
+                case .transcription, .speech: fatalError("Not an Ollama model")
                 case .embedding: enabled.embeddingModels.append(alias)
                 }
                 let engine = try LocalModelEngine(configuration: enabled)
@@ -42,6 +44,7 @@ final class LiveLifecycleTests: XCTestCase, @unchecked Sendable {
                 case .generation:
                     let answer = try await engine.generate(.init(model: alias, prompt: "Reply with the word ready.", maxTokens: 32, think: .bool(false)))
                     XCTAssertFalse(answer.text.isEmpty)
+                case .transcription, .speech: fatalError("Not an Ollama model")
                 case .embedding:
                     let answer = try await engine.embed(.init(model: alias, input: ["Synthetic lifecycle check."]))
                     XCTAssertEqual(answer.embeddings.count, 1)

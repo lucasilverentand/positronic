@@ -2,12 +2,16 @@ import Foundation
 import ModelAPI
 
 public protocol ModelEngine: Sendable {
+    func validateJob(_ submission: JobSubmission) async throws
+    func budget(for model: String) async -> Int64?
     func models() async -> [ModelInfo]
     func generate(_ value: GenerationRequest) async throws -> GenerationResponse
     func decide(_ value: DecisionRequest) async throws -> DecisionResponse
     func embed(_ value: EmbeddingRequest) async throws -> EmbeddingResponse
 }
 public extension ModelEngine {
+    func validateJob(_ submission: JobSubmission) async throws {}
+    func budget(for model: String) async -> Int64? { 0 }
     func embed(_ value: EmbeddingRequest) async throws -> EmbeddingResponse { throw ModelAPIError.unavailable("Embeddings are unavailable in this engine.") }
 }
 
@@ -16,8 +20,9 @@ public struct LocalModelEngine: ModelEngine {
     private let apple: any AppleModelBackend
     private let transport: ModelAPIClient.Transport
     private let activity: ModelActivity
-    public init(configuration: ServiceConfiguration, transport: ModelAPIClient.Transport? = nil, activity: ModelActivity = .init(), apple: any AppleModelBackend = AppleModel()) throws {
-        try configuration.validate(); self.configuration = configuration; self.transport = transport ?? HTTPTransport.send; self.activity = activity; self.apple = apple
+    private let budgetProvider: (@Sendable (String) async -> Int64?)?
+    public init(configuration: ServiceConfiguration, budgetProvider: (@Sendable (String) async -> Int64?)? = nil, transport: ModelAPIClient.Transport? = nil, activity: ModelActivity = .init(), apple: any AppleModelBackend = AppleModel()) throws {
+        try configuration.validate(); self.configuration = configuration; self.transport = transport ?? HTTPTransport.send; self.activity = activity; self.apple = apple; self.budgetProvider = budgetProvider
     }
     private func call<T: Decodable>(_ path: String, value: JSONValue? = nil, decode: T.Type) async throws -> T {
         var request = URLRequest(url: URL(string: configuration.ollamaURL)!.appendingPathComponent(path))
@@ -32,6 +37,29 @@ public struct LocalModelEngine: ModelEngine {
         guard data.count <= 1_000_000 else { throw ModelAPIError.limit("Local model response exceeds 1 MB.") }
         return try JSONDecoder().decode(T.self, from: data)
     }
+    public func validateJob(_ submission: JobSubmission) async throws {
+        guard let model = submission.request.object?["model"]?.string else { throw ModelAPIError.invalid("Supply a model.") }
+        let allowed: Bool
+        switch submission.operation {
+        case "generation":
+            if model == "apple-pcc", !configuration.allowApplePCC { throw ModelAPIError.unavailable("Private Cloud Compute is disabled.") }
+            allowed = ["apple", "apple-pcc"].contains(model) || configuration.generationModels.contains(model)
+        case "embedding": allowed = configuration.embeddingModels.contains(model)
+        case "decision": allowed = configuration.decisionModels.contains(model)
+        default: allowed = false
+        }
+        guard allowed else { throw ModelAPIError.invalid("The selected model is not enabled for this operation.") }
+    }
+    public func budget(for model: String) async -> Int64? {
+        if let budgetProvider { return await budgetProvider(model) }
+        if JobExecution.queueID == activity.jobs.identity { return 0 }
+        if model == "apple" { return 4 * 1024 * 1024 * 1024 }
+        if model == "apple-pcc" { return 1 * 1024 * 1024 * 1024 }
+        guard let raw = try? await call("api/tags", decode: JSONValue.self), case .array(let models) = raw.object?["models"],
+              let tag = models.first(where: { $0.object?["name"]?.string == model }), let size = tag.object?["size"]?.numberValue,
+              size.isFinite, size > 0, size < 1e12 else { return nil }
+        return Int64(size * 1.35) + 2 * 1024 * 1024 * 1024
+    }
     public func models() async -> [ModelInfo] {
         let tags = try? await call("api/tags", decode: JSONValue.self)
         var installed = Set<String>()
@@ -40,10 +68,17 @@ public struct LocalModelEngine: ModelEngine {
         for (names, capability) in [(configuration.generationModels, "generation"), (configuration.decisionModels, "decision"), (configuration.embeddingModels, "embedding")] {
             result += names.map { .init(id: $0, capability: capability, available: installed.contains($0), detail: installed.contains($0) ? "Installed in the local runtime" : "Not found in the local runtime") }
         }
+        for id in configuration.audioModels {
+            let preset = AudioCatalog.presets.first { $0.id == id }
+            let available = AudioCatalog.runtimeReady && AudioCatalog.installed().contains { $0.id == id }
+            result.append(.init(id: id, capability: preset?.capability.rawValue ?? "audio", available: available, detail: available ? "Local MLX Audio · English / Dutch" : "Download this local audio model first."))
+        }
         return result
     }
     public func embed(_ value: EmbeddingRequest) async throws -> EmbeddingResponse {
-        try await activity.withInference { try await performEmbedding(value) }
+        try value.validate()
+        try await validateJob(.init(operation: "embedding", request: .object(["model": .string(value.model)])))
+        return try await activity.withInference(model: value.model, budget: await budget(for: value.model)) { try await performEmbedding(value) }
     }
     private func performEmbedding(_ value: EmbeddingRequest) async throws -> EmbeddingResponse {
         try value.validate()
@@ -57,7 +92,9 @@ public struct LocalModelEngine: ModelEngine {
         try result.validate(for: value); return result
     }
     public func generate(_ value: GenerationRequest) async throws -> GenerationResponse {
-        try await activity.withInference { try await performGeneration(value) }
+        try value.validate()
+        try await validateJob(.init(operation: "generation", request: .object(["model": .string(value.model)])))
+        return try await activity.withInference(model: value.model, budget: await budget(for: value.model)) { try await performGeneration(value) }
     }
     private func performGeneration(_ value: GenerationRequest) async throws -> GenerationResponse {
         try value.validate()
@@ -93,7 +130,8 @@ public struct LocalModelEngine: ModelEngine {
                                   output: result.object?["eval_count"]?.numberValue.flatMap(Int.init(exactly:))))
     }
     public func decide(_ value: DecisionRequest) async throws -> DecisionResponse {
-        try await activity.withInference { try await performDecision(value) }
+        try await validateJob(.init(operation: "decision", request: .object(["model": .string(value.model)])))
+        return try await activity.withInference(model: value.model, budget: await budget(for: value.model)) { try await performDecision(value) }
     }
     private func performDecision(_ value: DecisionRequest) async throws -> DecisionResponse {
         guard configuration.decisionModels.contains(value.model), !value.questions.isEmpty, value.questions.count <= 32,

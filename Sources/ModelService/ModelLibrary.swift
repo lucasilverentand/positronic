@@ -2,8 +2,8 @@ import Foundation
 import ModelAPI
 
 public enum ModelCapability: String, Codable, Sendable, CaseIterable {
-    case generation, decision, embedding
-    public var title: String { switch self { case .generation: "Generation"; case .decision: "Decisions"; case .embedding: "Embeddings" } }
+    case generation, decision, embedding, transcription, speech
+    public var title: String { switch self { case .generation: "Generation"; case .decision: "Decisions"; case .embedding: "Embeddings"; case .transcription: "Transcription"; case .speech: "Speech" } }
 }
 public struct ModelPreset: Identifiable, Sendable {
     public var id: String
@@ -49,14 +49,18 @@ public struct ModelLibrary: Sendable {
         .init(id: "tev1:0.8b", name: "Tev1 · 0.8B", capability: .decision, detail: "Small decision model for tighter memory budgets", source: URL(string: "https://ollama.com/library/tev1")!),
         .init(id: "embeddinggemma:latest", name: "EmbeddingGemma", capability: .embedding, detail: "Text vectors for search and retrieval", source: URL(string: "https://ollama.com/library/embeddinggemma")!),
         .init(id: "nomic-embed-text:latest", name: "Nomic Embed Text", capability: .embedding, detail: "Text vectors for semantic search", source: URL(string: "https://ollama.com/library/nomic-embed-text")!)
-    ]
+    ] + AudioCatalog.presets
+    private let capacity: @Sendable (URL) throws -> Int64
     private let modelStorage: URL?
     private let baseURL: URL
     private let transport: ModelAPIClient.Transport
     private static func hasRemote(_ value: JSONValue?) -> Bool {
         ["remote_host", "remote_model"].contains { !(value?.object?[$0]?.string ?? "").isEmpty }
     }
-    public init(configuration: ServiceConfiguration, transport: ModelAPIClient.Transport? = nil) throws {
+    public init(configuration: ServiceConfiguration, capacity: @escaping @Sendable (URL) throws -> Int64 = { url in
+        guard let value = try url.resourceValues(forKeys: [.volumeAvailableCapacityKey]).volumeAvailableCapacity else { throw ModelAPIError.unavailable("Disk telemetry unavailable.") }; return Int64(value)
+    }, transport: ModelAPIClient.Transport? = nil) throws {
+        self.capacity = capacity
         try configuration.validate(); baseURL = URL(string: configuration.ollamaURL)!
         modelStorage = configuration.assetsPath.isEmpty ? nil : URL(fileURLWithPath: configuration.assetsPath)
         self.transport = transport ?? HTTPTransport.send
@@ -96,8 +100,19 @@ public struct ModelLibrary: Sendable {
         return installed.sorted { $0.id < $1.id }
     }
     public func downloadRestriction(_ preset: ModelPreset) -> String? {
-        guard let required = preset.minimumFreeDiskBytes, let modelStorage else { return nil }
-        let available = (try? modelStorage.resourceValues(forKeys: [.volumeAvailableCapacityKey]))?.volumeAvailableCapacity.map(Int64.init)
+        guard let modelStorage else { return "Choose a model storage directory before downloading." }
+        let projected: Int64
+        switch preset.id {
+        case "muse-glimmer:30b", "clef:27b": projected = 24 << 30
+        case "clef-flash:9b-mxfp8", "clef-flash:9b", "nimble:9b": projected = 14 << 30
+        case "mistral:7b", "deepseek-r1:8b", "qwen2.5-coder:7b": projected = 8 << 30
+        case "qwen3.5:4b", "tev1:4b": projected = 6 << 30
+        case "gemma4:e2b", "llama3.2:3b": projected = 4 << 30
+        case "whisper-large-v3-turbo", "chatterbox-multilingual-v3": projected = 4 << 30
+        default: projected = 2 << 30
+        }
+        let required = max(preset.minimumFreeDiskBytes ?? 0, ResourceMonitor.diskReserve + projected)
+        let available = try? capacity(modelStorage)
         return Self.storageRestriction(required: required, available: available)
     }
     static func storageRestriction(required: Int64, available: Int64?) -> String? {
@@ -108,6 +123,7 @@ public struct ModelLibrary: Sendable {
         return "Needs \(needed) free including working space; \(free) is available on the model drive."
     }
     public func download(_ preset: ModelPreset, progress: @escaping @Sendable (ModelDownloadProgress) -> Void) async throws {
+        guard !AudioCatalog.ids.contains(preset.id) else { throw ModelAPIError.invalid("Use the managed audio runtime to download audio models.") }
         guard Self.presets.contains(where: { $0.id == preset.id }), ServiceConfiguration.isLocalModel(preset.id) else { throw ModelAPIError.invalid("Choose a local model from the library.") }
         if let restriction = downloadRestriction(preset) { throw ModelAPIError.unavailable(restriction) }
         var request = URLRequest(url: baseURL.appendingPathComponent("api/pull")); request.httpMethod = "POST"; request.timeoutInterval = 3600
@@ -125,6 +141,11 @@ public struct ModelLibrary: Sendable {
                 guard line.utf8.count < 64_000 else { throw ModelAPIError.limit("Invalid model download progress.") }
                 let update = try JSONDecoder().decode(ModelDownloadProgress.self, from: Data(line.utf8))
                 guard update.error == nil else { throw ModelAPIError.unavailable("The model download failed. Check runtime compatibility and available disk space.") }
+                if let modelStorage {
+                    let remaining = max(0, (update.total ?? 0) - (update.completed ?? 0))
+                    guard remaining.isFinite, remaining < Double(Int64.max - ResourceMonitor.diskReserve) else { throw ModelAPIError.limit("Invalid model download size.") }
+                    guard try capacity(modelStorage) >= ResourceMonitor.diskReserve + Int64(remaining) else { throw ModelAPIError.unavailable("Download stopped to preserve 25 GiB of disk space.") }
+                }
                 progress(update)
                 if update.status == "success" { success = true }
             }

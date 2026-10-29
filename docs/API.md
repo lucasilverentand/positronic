@@ -86,14 +86,87 @@ download weights, change model allowlists or enable PCC. They may select `apple-
 
 ## Bounds and lifecycle
 
-HTTP bodies are bounded to 1 MB, headers to 16 KiB, responses to 1 MB. Duplicate
-headers, chunked request bodies and pipelined requests are unsupported. Up to 64
-connections and four model/discovery requests can be active. Requests beyond
-the inference limit return 429. The local Ollama request timeout is 115 seconds;
-incomplete requests close after 130 seconds, and handler work is bounded to 330 seconds after parsing. Disconnect detection during inference is
-best effort; stopping the API explicitly closes connections and cancels tasks.
+JSON bodies and JSON responses are bounded to 1 MB; headers to 16 KiB. Audio
+uploads accept 64 MiB of file content plus at most 64 KiB of multipart framing.
+WAV results are streamed and bounded to 64 MiB. Duplicate headers, chunked
+requests and pipelining are unsupported. At most 64 connections and four
+synchronous inference waiters are accepted. Queue overflow returns 429. The
+Ollama request timeout is 115 seconds; incomplete uploads close after 130 seconds.
+Parsed request handling has a 900-second connection deadline. Closing a
+synchronous request cancels its queued or running work; asynchronous jobs remain
+independent once submitted. Stopping the API closes its connections.
 
 The API has no retries, automatic paid fallback or automatic downloads. Caller
 permissions, model routing and side effects belong to consuming systems. Use
 separate named keys for those systems. Files are private to the signed-in macOS
 user; another process with access to that user’s files shares that trust boundary.
+
+## Asynchronous jobs
+
+`POST /v1/jobs` submits an existing text operation and returns **202** with a
+`ModelJob` object. `operation` is `generation`, `embedding` or `decision`; `request`
+is the same request object accepted by the corresponding synchronous endpoint.
+Validation runs before admission. There are no automatic retries or downloads.
+
+```json
+{"operation":"generation","request":{"model":"apple","prompt":"Write a short title."}}
+```
+
+All job endpoints require the submitting key. A different key receives 404 for
+another client's job. Revoking a key cancels its unfinished work. The app operator
+can inspect and cancel every job through Jobs.
+
+| Endpoint | Behavior |
+| --- | --- |
+| `GET /v1/jobs` | List this key's current jobs |
+| `GET /v1/jobs/{id}` | Status, progress, position and resource waiting reason |
+| `GET /v1/jobs/{id}/result` | JSON text result/transcript or WAV; 409 until succeeded |
+| `POST /v1/jobs/{id}/cancel` | Cancel and return status; terminal jobs stay terminal |
+
+States are `queued`, `waitingForResources`, `loading`, `running`, `succeeded`,
+`failed`, `cancelled`. Dates are ISO 8601. `resources` reports required and available
+RAM, available disk and a waiting reason. Progress is optional and approximate.
+One local inference runs at a time. FIFO waits do not skip the first job.
+
+The queue holds at most 32 pending jobs; overflow returns 429. Resource waits
+expire after ten minutes with a retryable explanation. Results and status expire
+30 minutes after completion, then return 404. Metadata is in memory; files are
+private and temporary. Input cleanup occurs once cancelled work stops. Restart
+clears abandoned work without replay. Clients must retain their own history,
+download outputs promptly and decide whether to retry failed work.
+
+The Swift client exposes `submit`, `jobs`, `job`, `cancelJob`, `transcriptResult`
+and `downloadAudioResult`.
+
+## POST /v1/audio/transcriptions
+
+Submit multipart/form-data with `Content-Length` and exactly these three fields:
+`file` (decodable audio, up to 64 MiB and 30 minutes),
+`model=whisper-large-v3-turbo`, and `language=en` or `nl`. Uploads stream to a
+private temporary file; caller filenames and paths are never used. Returns **202**
+with a job object. The model must already be explicitly downloaded and enabled.
+
+```sh
+curl -H "Authorization: Bearer $POSITRONIC_KEY" \
+  -F 'model=whisper-large-v3-turbo' -F 'language=nl' -F 'file=@recording.wav' \
+  http://127.0.0.1:18767/v1/audio/transcriptions
+```
+
+The result is `{model, language, text, segments:[{start,end,text}]}`. Segment times
+are seconds. There is no live/partial transcription or speaker diarization.
+Swift: `transcribe(file:language:)` streams its multipart body from a temporary
+file. Microphone recording belongs to the app UI and submits after recording ends.
+
+## POST /v1/audio/speech
+
+```json
+{"model":"chatterbox-multilingual-v3","input":"De robot staat klaar.","language":"nl","voice":"default"}
+```
+
+Returns **202** with a job object. All four JSON fields are required on the wire;
+the Swift `SpeechRequest` initializer supplies model/language/voice defaults.
+Input is 1–5,000 characters, language is English `en` or Dutch `nl`, voice is
+`default`. The result endpoint returns `audio/wav` (24 kHz, mono, PCM16).
+The model must already be explicitly installed and enabled. No voice cloning,
+reference audio, music, effects or hosted fallback is accepted. Both audio
+operations run offline through MLX-Audio, independently of Ollama and PCC.

@@ -9,11 +9,12 @@ public struct ServiceConfiguration: Codable, Sendable {
     public var generationModels: [String] = []
     public var decisionModels: [String] = ["clef-flash:9b-mxfp8"]
     public var embeddingModels: [String] = []
+    public var audioModels: [String] = []
     public var assetsPath = ""
     public var startAPIOnLaunch = false
     public var startRuntimeOnLaunch = false
     public init() {}
-    private enum CodingKeys: String, CodingKey { case port, allowNetwork, allowApplePCC, ollamaURL, generationModels, decisionModels, embeddingModels, assetsPath, startAPIOnLaunch, startRuntimeOnLaunch }
+    private enum CodingKeys: String, CodingKey { case port, allowNetwork, allowApplePCC, ollamaURL, generationModels, decisionModels, embeddingModels, audioModels, assetsPath, startAPIOnLaunch, startRuntimeOnLaunch }
     public init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         port = try values.decode(UInt16.self, forKey: .port)
@@ -23,23 +24,25 @@ public struct ServiceConfiguration: Codable, Sendable {
         generationModels = try values.decode([String].self, forKey: .generationModels)
         decisionModels = try values.decode([String].self, forKey: .decisionModels)
         embeddingModels = try values.decodeIfPresent([String].self, forKey: .embeddingModels) ?? []
+        audioModels = try values.decodeIfPresent([String].self, forKey: .audioModels) ?? []
         assetsPath = try values.decode(String.self, forKey: .assetsPath)
         startAPIOnLaunch = try values.decode(Bool.self, forKey: .startAPIOnLaunch)
         startRuntimeOnLaunch = try values.decodeIfPresent(Bool.self, forKey: .startRuntimeOnLaunch) ?? false
     }
     public static func isLocalModel(_ name: String) -> Bool {
         let tag = name.split(separator: ":").last?.lowercased() ?? ""
-        return !name.isEmpty && !name.contains(where: \.isWhitespace) && !["apple", "apple-pcc"].contains(name) && tag != "cloud" && !tag.hasSuffix("-cloud")
+        return !name.isEmpty && !name.contains(where: \.isWhitespace) && !(["apple", "apple-pcc"] + AudioCatalog.ids).contains(name) && tag != "cloud" && !tag.hasSuffix("-cloud")
     }
     public func removingModel(_ name: String) -> Self {
         var next = self
         next.generationModels.removeAll { $0 == name }
         next.decisionModels.removeAll { $0 == name }
         next.embeddingModels.removeAll { $0 == name }
+        next.audioModels.removeAll { $0 == name }
         return next
     }
     public func validate() throws {
-        guard port > 1024, let url = URL(string: ollamaURL), url.scheme == "http",
+        guard audioModels.allSatisfy(AudioCatalog.ids.contains), port > 1024, let url = URL(string: ollamaURL), url.scheme == "http",
               ["127.0.0.1", "localhost", "[::1]", "::1"].contains(url.host ?? ""), url.user == nil,
               (1...65535).contains(url.port ?? 80),
               url.password == nil, url.query == nil, url.fragment == nil, url.path.isEmpty || url.path == "/",

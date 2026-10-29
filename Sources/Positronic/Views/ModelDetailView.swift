@@ -5,7 +5,9 @@ struct ModelDetailView: View {
     @Bindable var store: AppStore
     let model: ManagedModel
     var tryModel: (String) -> Void
+    var openAudio: () -> Void
     @State private var confirmingRemoval = false
+    private var memoryKnown: Bool { AudioCatalog.ids.contains(model.id) || store.loadedStatusKnown }
     private var installed: InstalledModel? { model.installed }
     private var readyForPlayground: Bool {
         store.models.contains { $0.id == model.id && $0.capability == "generation" && $0.available }
@@ -38,6 +40,9 @@ struct ModelDetailView: View {
                     Text("Enable API access to try this model in Playground.").font(.caption).foregroundStyle(.secondary)
                 }
             }
+            if model.capability == .transcription || model.capability == .speech {
+                Button("Open in Audio", action: openAudio).disabled(!store.configuration.audioModels.contains(model.id))
+            }
             if let installed {
                 Divider()
                 Button("Remove from Mac…", role: .destructive) { confirmingRemoval = true }
@@ -57,7 +62,7 @@ struct ModelDetailView: View {
         VStack(alignment: .leading, spacing: 12) {
             if let capability = installed.capability { LabeledContent("Type", value: capability.title) }
             if let size = installed.sizeBytes { LabeledContent("Download", value: ByteCountFormatter.string(fromByteCount: size, countStyle: .file)) }
-            LabeledContent("Memory", value: !store.loadedStatusKnown ? "Unavailable" : loaded == nil ? "Not loaded" : "Loaded")
+            LabeledContent("Memory", value: !memoryKnown ? "Unavailable" : loaded == nil ? "Not loaded" : "Loaded")
             if let bytes = loaded?.memoryBytes { LabeledContent("In use", value: ByteCountFormatter.string(fromByteCount: bytes, countStyle: .memory)) }
             if !installed.detail.isEmpty { Text(installed.detail).font(.caption).foregroundStyle(.secondary) }
         }.font(.callout)
@@ -68,8 +73,8 @@ struct ModelDetailView: View {
             Label(loaded == nil ? "Load into memory" : "Unload model", systemImage: loaded == nil ? "play.fill" : "stop.fill")
                 .frame(maxWidth: .infinity)
         }.buttonStyle(.borderedProminent)
-            .disabled(!store.canManageModels || !store.loadedStatusKnown || (loaded == nil && installed.capability == nil))
-        Text(!store.loadedStatusKnown ? "Start or reconnect the local runtime in Settings, then refresh." : loaded == nil ? "Loading prepares the model for requests. Enabled models can also load on demand." : "Unloading frees memory and keeps the downloaded files. An API request can load the model again.")
+            .disabled(!store.canManageModels || !memoryKnown || (loaded == nil && installed.capability == nil))
+        Text(!memoryKnown ? "Start or reconnect the local runtime in Settings, then refresh." : loaded == nil ? "Loading prepares the model for requests. Enabled models can also load on demand." : "Unloading frees memory and keeps the downloaded files. An API request can load the model again.")
             .font(.caption).foregroundStyle(.secondary)
         Divider()
         if let capability = installed.capability {

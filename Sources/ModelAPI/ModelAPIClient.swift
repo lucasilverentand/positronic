@@ -41,7 +41,8 @@ public struct ModelAPIClient: Sendable {
             let detail = error.flatMap { $0.utf8.count <= 4096 ? $0 : nil }
             throw ModelAPIError.unavailable("Model API returned HTTP \(response.statusCode)." + (detail.map { " " + $0 } ?? ""))
         }
-        return try JSONDecoder().decode(Output.self, from: data)
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(Output.self, from: data)
     }
 }
 
@@ -52,17 +53,63 @@ public final class HTTPTransport: NSObject, URLSessionTaskDelegate, Sendable {
         config.connectionProxyDictionary = [:]
         let session = URLSession(configuration: config, delegate: HTTPTransport(), delegateQueue: nil)
         defer { session.invalidateAndCancel() }
-        let (bytes, raw) = try await session.bytes(for: request)
-        guard let response = raw as? HTTPURLResponse else { throw ModelAPIError.unavailable("Invalid HTTP response.") }
-        var data = Data()
-        for try await byte in bytes {
-            guard data.count < 1_000_000 else { throw ModelAPIError.limit("Model response exceeds 1 MB.") }
-            data.append(byte)
-        }
-        return (data, response)
+        return try await withTaskCancellationHandler {
+            let (bytes, raw) = try await session.bytes(for: request)
+            guard let response = raw as? HTTPURLResponse else { throw ModelAPIError.unavailable("Invalid HTTP response.") }
+            var data = Data()
+            for try await byte in bytes {
+                guard data.count < 1_000_000 else { throw ModelAPIError.limit("Model response exceeds 1 MB.") }
+                data.append(byte)
+            }
+            return (data, response)
+        } onCancel: { session.invalidateAndCancel() }
     }
     public func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                            newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
         completionHandler(nil)
+    }
+}
+
+public extension ModelAPIClient {
+    func jobs() async throws -> [ModelJob] { try await request("v1/jobs", body: Optional<String>.none) }
+    func job(_ id: UUID) async throws -> ModelJob { try await request("v1/jobs/\(id.uuidString)", body: Optional<String>.none) }
+    func cancelJob(_ id: UUID) async throws -> ModelJob { try await request("v1/jobs/\(id.uuidString)/cancel", body: [String: String]()) }
+    func submit(_ submission: JobSubmission) async throws -> ModelJob { try await request("v1/jobs", body: submission) }
+    func speech(_ request: SpeechRequest) async throws -> ModelJob { try request.validate(); return try await self.request("v1/audio/speech", body: request) }
+    func transcriptResult(_ id: UUID) async throws -> Transcript { try await request("v1/jobs/\(id.uuidString)/result", body: Optional<String>.none) }
+    func transcribe(file: URL, language: String) async throws -> ModelJob {
+        guard ["en", "nl"].contains(language), let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize, size > 0, size <= 64 * 1024 * 1024 else { throw ModelAPIError.invalid("Choose en or nl and an audio file up to 64 MiB.") }
+        let boundary = "Positronic-" + UUID().uuidString
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        FileManager.default.createFile(atPath: temp.path, contents: nil, attributes: [.posixPermissions: 0o600])
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let writer = try FileHandle(forWritingTo: temp), reader = try FileHandle(forReadingFrom: file)
+        defer { try? writer.close(); try? reader.close() }
+        func write(_ value: String) throws { try writer.write(contentsOf: Data(value.utf8)) }
+        try write("--\(boundary)\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\nwhisper-large-v3-turbo\r\n")
+        try write("--\(boundary)\r\nContent-Disposition: form-data; name=\"language\"\r\n\r\n\(language)\r\n")
+        try write("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"audio\"\r\nContent-Type: application/octet-stream\r\n\r\n")
+        var count = 0
+        while let chunk = try reader.read(upToCount: 65536), !chunk.isEmpty {
+            try Task.checkCancellation(); count += chunk.count
+            guard count <= 64 * 1024 * 1024 else { throw ModelAPIError.limit("Audio file grew beyond 64 MiB.") }; try writer.write(contentsOf: chunk)
+        }
+        try write("\r\n--\(boundary)--\r\n"); try writer.close()
+        var wire = URLRequest(url: baseURL.appendingPathComponent("v1/audio/transcriptions")); wire.httpMethod = "POST"; wire.timeoutInterval = 130
+        wire.setValue("Bearer " + apiKey, forHTTPHeaderField: "Authorization"); wire.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        let config = URLSessionConfiguration.ephemeral; config.connectionProxyDictionary = [:]; config.httpShouldSetCookies = false
+        let session = URLSession(configuration: config, delegate: HTTPTransport(), delegateQueue: nil); defer { session.invalidateAndCancel() }
+        let (data, response) = try await session.upload(for: wire, fromFile: temp)
+        guard let response = response as? HTTPURLResponse, response.statusCode == 202 else { throw ModelAPIError.unavailable("Audio upload was not accepted.") }
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601; return try decoder.decode(ModelJob.self, from: data)
+    }
+    func downloadAudioResult(_ id: UUID, to destination: URL) async throws {
+        var wire = URLRequest(url: baseURL.appendingPathComponent("v1/jobs/\(id.uuidString)/result")); wire.timeoutInterval = 120
+        wire.setValue("Bearer " + apiKey, forHTTPHeaderField: "Authorization")
+        let config = URLSessionConfiguration.ephemeral; config.connectionProxyDictionary = [:]; config.httpShouldSetCookies = false
+        let session = URLSession(configuration: config, delegate: HTTPTransport(), delegateQueue: nil); defer { session.invalidateAndCancel() }
+        let (file, response) = try await session.download(for: wire)
+        guard let reply = response as? HTTPURLResponse, reply.statusCode == 200, reply.mimeType == "audio/wav", (try file.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0) <= 64 * 1024 * 1024 else { throw ModelAPIError.unavailable("Speech result is unavailable or invalid.") }
+        try FileManager.default.moveItem(at: file, to: destination)
     }
 }

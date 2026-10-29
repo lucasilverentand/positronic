@@ -13,6 +13,8 @@ and external systems through one authenticated HTTP API.
   Clef-Flash and other installed compatible decision models. Responses preserve
   measured usage and validated probabilities.
 - **Embeddings:** local text vectors for search, retrieval and similarity matching.
+- **Audio:** English and Dutch transcription with Whisper Large V3 Turbo, and speech generation with Chatterbox Multilingual V3. Both run locally through a separate managed MLX-Audio worker.
+- **Jobs:** a transient FIFO queue with one inference at a time, resource admission, cancellation and per-client result ownership.
 
 One Swift executable contains the app and API. Create and revoke API keys in the
 app, choose enabled models, and start or stop the service. A menu bar control keeps
@@ -46,12 +48,55 @@ swift test
 ## App pages
 
 **Your models** shows all model types together in a searchable list, with memory, API access, load/unload and confirmed removal in the selected model’s detail pane.
-**Discover** is a separate searchable catalog with generation, decision and embedding sections, plus a persistent download progress bar across pages.
+**Discover** is a separate searchable catalog with generation, decision, embedding, transcription and speech sections, plus a persistent download progress bar across pages.
 **Playground** runs generation without saving prompts, with explicit cloud labeling and PCC reasoning controls.
+**Audio** imports recordings, records the microphone, copies transcripts and plays/exports generated WAV speech.
+**Jobs** shows queue positions, progress, resource waits and cancellation.
 **API & Keys** controls serving and client credentials.
 **Settings** contains startup, runtime and network options.
 Downloads and model enable switches work while the API is running; changing a
 model allowlist updates new requests without interrupting accepted work.
+
+## Local audio and temporary jobs
+
+In Discover, explicitly **Prepare audio runtime**, download Whisper and/or Chatterbox,
+then enable each in Your models. This installs a private, pinned Python/MLX-Audio
+environment and immutable model revisions. No audio model is downloaded on demand.
+After preparation, inference works offline. Audio never uses PCC or another cloud.
+The worker starts only for admitted work and stops after five idle minutes.
+
+Choose English or Dutch on Audio. Import up to 64 MiB / 30 minutes, or record the
+microphone and stop to transcribe. Microphone permission is requested on Record;
+denial leaves file import available. Speech takes up to 5,000 characters and uses
+one packaged default voice. There is no reference-voice upload, cloning, music,
+effects, diarization or live transcription. Export speech before results expire.
+
+Audio, Playground, explicit model loads and API inference share one FIFO scheduler.
+At most 32 pending jobs are admitted. Resource checks and reservations are atomic
+with scheduling, including on-demand loads. Jobs wait for normal memory pressure,
+a model budget plus the greater of 8 GiB or 20% of physical RAM, CPU capacity and
+safe thermal conditions. Unknown budgets wait instead of guessing. Owned idle
+models can unload to make room; other applications are never interrupted.
+Downloads, uploads and output allocation must preserve 25 GiB of free disk.
+
+Waiting jobs recheck every two seconds and fail with a retryable explanation after
+ten minutes. Running jobs are monitored each second; critical pressure, thermal
+emergency, reservation overrun, lost telemetry or swap growth above 256 MiB in
+30 seconds stops work. These checks reduce risk but cannot prevent another app
+from suddenly exhausting resources. Ollama budgets include weights, runtime and
+an allowance for its bounded 8,192-token context; audio budgets include decoding
+and worker overhead. Existing externally managed Ollama services need their own
+context and parallelism limits.
+
+Jobs and ownership metadata live in memory; inputs and results use private
+temporary files. Inputs are deleted when work settles after completion or
+cancellation. Results expire after 30 minutes. Quitting cancels work; restart
+clears abandoned files and never replays jobs. Consuming apps own durable history,
+restart recovery and retries. Revoking a key cancels its unfinished jobs. The
+local operator can inspect and cancel all jobs.
+
+See [the jobs and audio API](docs/API.md#asynchronous-jobs) and
+[pinned audio provenance](Resources/Audio/README.md).
 
 ## Set up models
 

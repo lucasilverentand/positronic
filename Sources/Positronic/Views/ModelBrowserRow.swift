@@ -1,11 +1,12 @@
 import SwiftUI
+import ModelService
 
 struct ModelBrowserRow: View {
     @Bindable var store: AppStore
     let model: ManagedModel
     private var status: String {
         if let installed = model.installed {
-            guard store.loadedStatusKnown else { return "Unknown" }
+            guard AudioCatalog.ids.contains(model.id) || store.loadedStatusKnown else { return "Unknown" }
             return store.loadedModel(installed) == nil ? "On disk" : "Loaded"
         }
         if model.location == .appleCloud && !store.configuration.allowApplePCC { return "Off" }

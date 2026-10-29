@@ -83,7 +83,7 @@ final class ModelLifecycleTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(next.ollamaURL, config.ollamaURL)
     }
     func testManagementCannotInterruptAnAcceptedRequest() async throws {
-        let activity = ModelActivity(), suspension = Suspension()
+        let activity = ModelActivity(jobs: fixtureQueue()), suspension = Suspension()
         let request = Task { try await activity.withInference { await suspension.hold() } }
         try await suspension.waitUntilEntered()
         do { try await activity.withManagement {}; XCTFail("Active inference must block management") } catch {}
@@ -91,7 +91,7 @@ final class ModelLifecycleTests: XCTestCase, @unchecked Sendable {
         try await activity.withManagement {}
     }
     func testManagementBlocksNewRequestsAndAlwaysReleasesGate() async throws {
-        let activity = ModelActivity(), suspension = Suspension()
+        let activity = ModelActivity(jobs: fixtureQueue()), suspension = Suspension()
         let management = Task { try await activity.withManagement { await suspension.hold() } }
         try await suspension.waitUntilEntered()
         do { try await activity.withInference {}; XCTFail("Management must block inference") } catch {}
@@ -101,11 +101,11 @@ final class ModelLifecycleTests: XCTestCase, @unchecked Sendable {
         try await activity.withInference {}
     }
     func testEngineUsesTheSharedManagementGate() async throws {
-        let activity = ModelActivity(), suspension = Suspension()
+        let activity = ModelActivity(jobs: fixtureQueue()), suspension = Suspension()
         let management = Task { try await activity.withManagement { await suspension.hold() } }
         try await suspension.waitUntilEntered()
         var config = ServiceConfiguration(); config.embeddingModels = ["embed:local"]
-        let engine = try LocalModelEngine(configuration: config, transport: { _ in
+        let engine = try fixtureEngine(configuration: config, transport: { _ in
             XCTFail("Busy engine must not reach runtime"); throw CancellationError()
         }, activity: activity)
         do { _ = try await engine.embed(.init(model: "embed:local", input: ["fixture"])); XCTFail("Expected busy error") } catch {}

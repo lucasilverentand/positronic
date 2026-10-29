@@ -4,6 +4,7 @@ import ModelAPI
 
 public struct HTTPRequest: Sendable {
     public var method: String; public var target: String; public var headers: [String: String]; public var body: Data
+    public var upload: URL? = nil
     public var path: String { String(target.split(separator: "?", maxSplits: 1).first ?? "") }
     public var query: [String: String] { Dictionary((URLComponents(string: "http://127.0.0.1\(target)")?.queryItems ?? []).map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { _, last in last }) }
     public var bearer: String { headers["authorization"].flatMap { $0.hasPrefix("Bearer ") ? String($0.dropFirst(7)) : nil } ?? "" }
@@ -11,7 +12,9 @@ public struct HTTPRequest: Sendable {
 public struct HTTPResponse: Sendable {
     public var status: Int; public var type: String; public var body: Data
     public init(status: Int = 200, type: String = "application/json", body: Data) { self.status = status; self.type = type; self.body = body }
-    public static func json<T: Encodable>(_ value: T, status: Int = 200) throws -> Self { .init(status: status, body: try JSONEncoder().encode(value)) }
+    public var file: URL?
+    public init(file: URL, type: String) { self.file = file; self.type = type; self.body = Data(); self.status = 200 }
+    public static func json<T: Encodable>(_ value: T, status: Int = 200) throws -> Self { let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601; return .init(status: status, body: try encoder.encode(value)) }
     public static func error(_ message: String, status: Int) -> Self { try! .json(["error": message], status: status) }
 }
 public enum HTTPParser {
@@ -42,14 +45,16 @@ public final class LoopbackServer: @unchecked Sendable {
     private let listener: NWListener
     private let peers = PeerRegistry()
     private let handler: @Sendable (HTTPRequest) async -> HTTPResponse
+    private let authorizeUpload: @Sendable (HTTPRequest) async -> Bool
+    private let uploadDirectory: URL
     public var port: UInt16? { listener.port?.rawValue }
-    public init(port: UInt16 = 18767, allowNetwork: Bool = false, handler: @escaping @Sendable (HTTPRequest) async -> HTTPResponse) throws {
+    public init(port: UInt16 = 18767, allowNetwork: Bool = false, uploadDirectory: URL = AudioCatalog.jobsDirectory, authorizeUpload: @escaping @Sendable (HTTPRequest) async -> Bool = { _ in false }, handler: @escaping @Sendable (HTTPRequest) async -> HTTPResponse) throws {
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: allowNetwork ? "0.0.0.0" : "127.0.0.1", port: NWEndpoint.Port(rawValue: port)!)
-        self.listener = try NWListener(using: parameters); self.handler = handler
+        self.listener = try NWListener(using: parameters); self.handler = handler; self.authorizeUpload = authorizeUpload; self.uploadDirectory = uploadDirectory
     }
     public func run(onReady: @escaping @Sendable () -> Void = {}) async throws {
-        let listener = listener, handler = handler, peers = peers
+        let listener = listener, handler = handler, peers = peers, authorizeUpload = authorizeUpload, uploadDirectory = uploadDirectory
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
                 let completion = ListenerCompletion(continuation)
@@ -58,7 +63,7 @@ public final class LoopbackServer: @unchecked Sendable {
                 }
                 listener.newConnectionHandler = { connection in
                     guard peers.insert(connection) else { connection.cancel(); return }
-                    let peer = HTTPPeer(connection: connection, handler: handler)
+                    let peer = HTTPPeer(connection: connection, handler: handler, authorizeUpload: authorizeUpload, uploadDirectory: uploadDirectory)
                     connection.stateUpdateHandler = { state in
                         if case .cancelled = state { peers.remove(connection); Task { await peer.close() } }
                         if case .failed = state { peers.remove(connection); Task { await peer.close() } }
@@ -98,9 +103,17 @@ private final class ListenerCompletion: @unchecked Sendable {
 private actor HTTPPeer {
     private let connection: NWConnection
     private let handler: @Sendable (HTTPRequest) async -> HTTPResponse
+    private let authorizeUpload: @Sendable (HTTPRequest) async -> Bool
+    private let uploadDirectory: URL
+    private var upload: URL?
+    private var uploadHandle: FileHandle?
+    private var uploadRequest: HTTPRequest?
+    private var uploadLength = 0
+    private var uploaded = 0
+    private var responseFile: FileHandle?
     private var buffer = Data(); private var finished = false; private var work: Task<Void, Never>?
     private var deadline: Task<Void, Never>?
-    init(connection: NWConnection, handler: @escaping @Sendable (HTTPRequest) async -> HTTPResponse) { self.connection = connection; self.handler = handler }
+    init(connection: NWConnection, handler: @escaping @Sendable (HTTPRequest) async -> HTTPResponse, authorizeUpload: @escaping @Sendable (HTTPRequest) async -> Bool, uploadDirectory: URL) { self.uploadDirectory = uploadDirectory; self.connection = connection; self.handler = handler; self.authorizeUpload = authorizeUpload }
     func start() {
         receive()
         armDeadline(seconds: 130)
@@ -114,24 +127,88 @@ private actor HTTPPeer {
             Task { await self.received(data, complete: complete, failed: error != nil) }
         }
     }
-    private func received(_ data: Data?, complete: Bool, failed: Bool) {
+    private func received(_ data: Data?, complete: Bool, failed: Bool) async {
         guard !finished else { return }
-        if let data { buffer.append(data) }
         do {
-            if let request = try HTTPParser.parse(buffer) {
-                armDeadline(seconds: 330)
-                work = Task {
-                    let response = await handler(request)
-                    self.send(response)
-                }
-            } else if complete || failed { close() } else { receive() }
-        } catch { send(.error(error.localizedDescription, status: 400)) }
+            if uploadHandle != nil {
+                if let data { try appendUpload(data) }
+                if uploaded == uploadLength { finishUpload() }
+                else if complete || failed { close() } else { receive() }
+                return
+            }
+            if let data { buffer.append(data) }
+            if let (request, length, offset) = try AudioHTTPHeader.parse(buffer) {
+                guard await authorizeUpload(request) else { send(.error("API key required.", status: 401)); return }
+                guard !finished else { return }
+                try ResourceMonitor.requireDisk(at: uploadDirectory, additional: Int64(length) + 128 * 1024 * 1024)
+                let directory = uploadDirectory.appendingPathComponent("Uploads")
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+                let file = directory.appendingPathComponent(UUID().uuidString)
+                FileManager.default.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600])
+                upload = file; uploadHandle = try FileHandle(forWritingTo: file); uploadRequest = request; uploadLength = length
+                try appendUpload(Data(buffer.dropFirst(offset))); buffer = Data()
+                if uploaded == uploadLength { finishUpload() }
+                else if complete || failed { close() } else { receive() }
+            } else if let request = try HTTPParser.parse(buffer) { dispatch(request) }
+            else if complete || failed { close() } else { receive() }
+        } catch let error as ModelAPIError {
+            let code: Int; switch error { case .limit: code = 413; case .unavailable: code = 503; default: code = 400 }
+            send(.error(error.localizedDescription, status: code))
+        } catch { send(.error("Could not accept this audio upload.", status: 400)) }
+    }
+    private func appendUpload(_ data: Data) throws {
+        guard uploaded + data.count <= uploadLength else { throw ModelAPIError.invalid("Pipelined upload data is unsupported.") }
+        try uploadHandle?.write(contentsOf: data); uploaded += data.count
+    }
+    private func finishUpload() {
+        try? uploadHandle?.close(); uploadHandle = nil
+        guard var request = uploadRequest else { close(); return }
+        request.upload = upload; uploadRequest = nil; dispatch(request)
+    }
+    private func dispatch(_ request: HTTPRequest) {
+        buffer = Data(); armDeadline(seconds: 900)
+        work = Task { let response = await handler(request); self.send(response) }
+        // Keep observing the peer while synchronous work is queued or running.
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 1) { data, _, complete, error in
+            if complete || error != nil || data?.isEmpty == false { Task { await self.close() } }
+        }
+    }
+    private func discardUpload() {
+        try? uploadHandle?.close(); uploadHandle = nil
+        if let upload { try? FileManager.default.removeItem(at: upload) }; upload = nil
     }
     private func send(_ response: HTTPResponse) {
-        guard !finished else { return }; finished = true
-        deadline?.cancel(); deadline = nil
-        let header = "HTTP/1.1 \(response.status) \(response.status == 200 ? "OK" : "Error")\r\nContent-Type: \(response.type)\r\nContent-Length: \(response.body.count)\r\nConnection: close\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n\r\n"
-        connection.send(content: Data(header.utf8) + response.body, completion: .contentProcessed { _ in self.connection.cancel() })
+        guard !finished else { return }
+        discardUpload()
+        let length: Int
+        if let file = response.file {
+            do {
+                let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+                guard size <= AudioIO.uploadLimit else { send(.error("Result exceeds 64 MiB.", status: 413)); return }
+                responseFile = try FileHandle(forReadingFrom: file); length = size
+            } catch { send(.error("Job result is no longer available.", status: 404)); return }
+        } else { length = response.body.count }
+        finished = true; deadline?.cancel(); deadline = nil
+        let header = "HTTP/1.1 \(response.status) \(response.status == 200 ? "OK" : "Result")\r\nContent-Type: \(response.type)\r\nContent-Length: \(length)\r\nConnection: close\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n\r\n"
+        if responseFile != nil {
+            armDeadline(seconds: 60)
+            connection.send(content: Data(header.utf8), completion: .contentProcessed { error in
+                Task { if error != nil { await self.close() } else { await self.sendFileChunk() } }
+            })
+        } else { connection.send(content: Data(header.utf8) + response.body, completion: .contentProcessed { _ in self.connection.cancel() }) }
     }
-    func close() { finished = true; deadline?.cancel(); deadline = nil; work?.cancel(); work = nil; connection.cancel() }
+    private func sendFileChunk() {
+        guard let responseFile else { close(); return }
+        do {
+            let chunk = try responseFile.read(upToCount: 65536) ?? Data()
+            if chunk.isEmpty { close(); return }
+            connection.send(content: chunk, completion: .contentProcessed { error in
+                Task { if error != nil { await self.close() } else { await self.sendFileChunk() } }
+            })
+        } catch { close() }
+    }
+    func close() {
+        finished = true; deadline?.cancel(); deadline = nil; work?.cancel(); work = nil
+        discardUpload(); try? responseFile?.close(); responseFile = nil; connection.cancel()
+    }
 }

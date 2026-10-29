@@ -17,6 +17,8 @@ public actor RuntimeSetup {
             try FileManager.default.createDirectory(at: assets.appendingPathComponent("models"), withIntermediateDirectories: true)
             return assets
         }
+        try ResourceMonitor.requireDisk(at: assets, additional: 3 << 30)
+        try ResourceMonitor.requireDisk(at: FileManager.default.temporaryDirectory, additional: 3 << 30)
         let stage = assets.appendingPathComponent(".install-\(UUID())", isDirectory: true)
         try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: false)
         defer { try? FileManager.default.removeItem(at: stage) }
@@ -31,6 +33,7 @@ public actor RuntimeSetup {
         guard digest.finalize().map({ String(format: "%02x", $0) }).joined() == Self.archiveSHA256 else {
             throw ModelAPIError.unavailable("Runtime checksum did not match. Nothing was installed.")
         }
+        try ResourceMonitor.requireDisk(at: assets, additional: 2 << 30)
         let extracted = stage.appendingPathComponent("runtime", isDirectory: true)
         try FileManager.default.createDirectory(at: extracted, withIntermediateDirectories: false)
         try Self.run("/usr/bin/tar", ["-xzf", download.path, "-C", extracted.path])
