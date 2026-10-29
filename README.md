@@ -61,7 +61,7 @@ Use **Load** to prepare an installed model in memory, and **Unload** to release 
 
 Choose **Remove from Mac…** in a model’s menu to confirm deletion. The app disables that tag for API clients, unloads it, deletes it through the runtime and verifies it is gone. Shared files needed by other installed tags remain. A failed deletion stays disabled and reports an error. Management asks you to wait while API or Playground inference is in progress and is unavailable during downloads. Apple Intelligence is managed by macOS and has no app-level load or delete controls.
 
-The initial library includes Qwen 3.5, Gemma 4, Llama 3.2, Mistral, DeepSeek R1 and Qwen Coder for generation; Clef, Clef Flash, Nimble and Tev1 for decisions; and EmbeddingGemma and Nomic Embed Text for embeddings. Any other compatible installed local model can be enabled using its exact tag under Advanced model tags. Model licenses and memory requirements are linked from each library entry. Downloaded weights remain outside Git and the app bundle.
+The model library includes Muse Glimmer 30B (4-bit), Qwen 3.5, Gemma 4, Llama 3.2, Mistral, DeepSeek R1 and Qwen Coder for generation; Clef, Clef Flash, Nimble and Tev1 for decisions; and EmbeddingGemma and Nomic Embed Text for embeddings. Any other compatible installed local model can be enabled using its exact tag under Advanced model tags. Model licenses and memory requirements are linked from each library entry. Downloaded weights remain outside Git and the app bundle.
 
 For a fresh setup, choose **Prepare local runtime**. This explicitly downloads
 the pinned Ollama 0.40.12 runtime, verifies its archive checksum and Apple
@@ -178,3 +178,11 @@ POSITRONIC_LIVE_LIFECYCLE=1 swift test --filter LiveLifecycleTests
 ```
 
 This creates temporary aliases for generation, decision and embedding models, then checks load, unload, inference after unload, reload and removal using the production service components. It removes only its temporary aliases and verifies the original model tags and digests remain. Synthetic prompts are used; this check does not create API keys or change app settings.
+
+## Muse Glimmer compatibility
+
+Discover includes `muse-glimmer:30b`, Ollama’s approximately 18 GB Q4_K_M build. Meta reports quantized Glimmer inference on an M4 Max; it is a plausible fit for a 36 GB M4 Max at a bounded context, subject to other apps and runtime overhead. This is distinct from Muse Spark Open, which is far too large for this machine. The owned runtime uses one loaded local model and an 8192-token context setting. A local download does not add tool execution or image input to Positronic’s text-only API.
+
+The preset requires 25 GB free on the selected model drive to leave working space. Discover shows the storage restriction and the downloader checks again before starting. This guard is available when the model folder is configured; storage for an independently managed Ollama installation must be checked by its operator. Adding the preset does not download, enable or load it. Verify inference with a bounded context on the target Mac before relying on its throughput; a catalog entry does not establish a benchmark.
+
+Sources: [Ollama tags](https://ollama.com/library/muse-glimmer/tags), [Meta’s Glimmer announcement](https://research.meta.ai/blog/introducing-muse-glimmer-open-agentic-model).

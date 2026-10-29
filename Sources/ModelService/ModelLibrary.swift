@@ -11,6 +11,7 @@ public struct ModelPreset: Identifiable, Sendable {
     public var capability: ModelCapability
     public var detail: String
     public var source: URL
+    public var minimumFreeDiskBytes: Int64? = nil
 }
 public struct InstalledModel: Identifiable, Sendable {
     public var id: String
@@ -33,6 +34,7 @@ public struct ModelDownloadProgress: Decodable, Sendable {
 /// Read-only discovery and explicit operator downloads. No model is enabled by discovery alone.
 public struct ModelLibrary: Sendable {
     public static let presets: [ModelPreset] = [
+        .init(id: "muse-glimmer:30b", name: "Muse Glimmer · 30B", capability: .generation, detail: "Meta’s local reasoning model · 4-bit · about 18 GB to download", source: URL(string: "https://ollama.com/library/muse-glimmer:30b")!, minimumFreeDiskBytes: 25_000_000_000),
         .init(id: "qwen3.5:4b", name: "Qwen 3.5 · 4B", capability: .generation, detail: "General writing, coding and reasoning", source: URL(string: "https://ollama.com/library/qwen3.5")!),
         .init(id: "gemma4:e2b", name: "Gemma 4 · E2B", capability: .generation, detail: "A compact general-purpose model", source: URL(string: "https://ollama.com/library/gemma4")!),
         .init(id: "llama3.2:3b", name: "Llama 3.2 · 3B", capability: .generation, detail: "Compact text generation", source: URL(string: "https://ollama.com/library/llama3.2")!),
@@ -48,6 +50,7 @@ public struct ModelLibrary: Sendable {
         .init(id: "embeddinggemma:latest", name: "EmbeddingGemma", capability: .embedding, detail: "Text vectors for search and retrieval", source: URL(string: "https://ollama.com/library/embeddinggemma")!),
         .init(id: "nomic-embed-text:latest", name: "Nomic Embed Text", capability: .embedding, detail: "Text vectors for semantic search", source: URL(string: "https://ollama.com/library/nomic-embed-text")!)
     ]
+    private let modelStorage: URL?
     private let baseURL: URL
     private let transport: ModelAPIClient.Transport
     private static func hasRemote(_ value: JSONValue?) -> Bool {
@@ -55,6 +58,7 @@ public struct ModelLibrary: Sendable {
     }
     public init(configuration: ServiceConfiguration, transport: ModelAPIClient.Transport? = nil) throws {
         try configuration.validate(); baseURL = URL(string: configuration.ollamaURL)!
+        modelStorage = configuration.assetsPath.isEmpty ? nil : URL(fileURLWithPath: configuration.assetsPath)
         self.transport = transport ?? HTTPTransport.send
     }
     public func installed() async throws -> [InstalledModel] {
@@ -91,8 +95,21 @@ public struct ModelLibrary: Sendable {
         }
         return installed.sorted { $0.id < $1.id }
     }
+    public func downloadRestriction(_ preset: ModelPreset) -> String? {
+        guard let required = preset.minimumFreeDiskBytes, let modelStorage else { return nil }
+        let available = (try? modelStorage.resourceValues(forKeys: [.volumeAvailableCapacityKey]))?.volumeAvailableCapacity.map(Int64.init)
+        return Self.storageRestriction(required: required, available: available)
+    }
+    static func storageRestriction(required: Int64, available: Int64?) -> String? {
+        let needed = ByteCountFormatter.string(fromByteCount: required, countStyle: .file)
+        guard let available else { return "Check that the model drive has at least \(needed) free, then refresh." }
+        guard available < required else { return nil }
+        let free = ByteCountFormatter.string(fromByteCount: available, countStyle: .file)
+        return "Needs \(needed) free including working space; \(free) is available on the model drive."
+    }
     public func download(_ preset: ModelPreset, progress: @escaping @Sendable (ModelDownloadProgress) -> Void) async throws {
         guard Self.presets.contains(where: { $0.id == preset.id }), ServiceConfiguration.isLocalModel(preset.id) else { throw ModelAPIError.invalid("Choose a local model from the library.") }
+        if let restriction = downloadRestriction(preset) { throw ModelAPIError.unavailable(restriction) }
         var request = URLRequest(url: baseURL.appendingPathComponent("api/pull")); request.httpMethod = "POST"; request.timeoutInterval = 3600
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(["model": JSONValue.string(preset.id), "stream": .bool(true)])

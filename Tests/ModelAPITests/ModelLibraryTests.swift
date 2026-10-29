@@ -34,6 +34,11 @@ final class ModelLibraryTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(models.first { $0.id == "embed:small" }?.capability, .embedding)
         XCTAssertEqual(models.first { $0.id == "qwen:local" }?.capability, .generation)
     }
+    func testLargeDownloadRequiresCapacityAndWorkingSpace() {
+        XCTAssertNotNil(ModelLibrary.storageRestriction(required: 25_000_000_000, available: 15_800_000_000))
+        XCTAssertNil(ModelLibrary.storageRestriction(required: 25_000_000_000, available: 25_000_000_000))
+        XCTAssertNotNil(ModelLibrary.storageRestriction(required: 25_000_000_000, available: nil))
+    }
     func testEveryPresetIsExplicitlyLocal() throws {
         XCTAssertGreaterThanOrEqual(ModelLibrary.presets.count, 12)
         XCTAssertEqual(Set(ModelLibrary.presets.map(\.id)).count, ModelLibrary.presets.count)
@@ -97,7 +102,7 @@ final class ModelLibraryTests: XCTestCase, @unchecked Sendable {
         let library = try ModelLibrary(configuration: config)
         let pull = Task {
             defer { cancelled.fulfill() }
-            do { try await library.download(ModelLibrary.presets[0]) { _ in }; XCTFail("Cancelled pull cannot succeed") }
+            do { try await library.download(try XCTUnwrap(ModelLibrary.presets.first { $0.id == "qwen3.5:4b" })) { _ in }; XCTFail("Cancelled pull cannot succeed") }
             catch { XCTAssertTrue(Task.isCancelled) }
         }
         await fulfillment(of: [requested], timeout: 5)
@@ -121,7 +126,7 @@ final class ModelLibraryTests: XCTestCase, @unchecked Sendable {
             await fulfillment(of: [ready], timeout: 5)
             var config = ServiceConfiguration(); config.ollamaURL = "http://127.0.0.1:\(try XCTUnwrap(server.port))"
             let library = try ModelLibrary(configuration: config)
-            do { try await library.download(ModelLibrary.presets[0]) { _ in }; XCTAssertTrue(complete) }
+            do { try await library.download(try XCTUnwrap(ModelLibrary.presets.first { $0.id == "qwen3.5:4b" })) { _ in }; XCTAssertTrue(complete) }
             catch { XCTAssertFalse(complete) }
             server.stop(); try await task.value
         }
