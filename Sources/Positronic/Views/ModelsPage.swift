@@ -22,7 +22,7 @@ struct ModelsPage: View {
             GroupBox {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Connect a local runtime").font(.headline)
-                    Text("Prepare a private runtime for Purple Matter, or connect to an Ollama service already running on this Mac.").foregroundStyle(.secondary)
+                    Text("Prepare a private runtime for Positronic, or connect to an Ollama service already running on this Mac.").foregroundStyle(.secondary)
                     HStack {
                         Button("Prepare local runtime") { Task { await store.prepareRuntime() } }.buttonStyle(.borderedProminent)
                         Button("Use installed Ollama") { Task { await store.connectToOllama() } }

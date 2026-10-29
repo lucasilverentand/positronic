@@ -73,7 +73,7 @@ truncating text. The Swift client exposes `ModelAPIClient.embed`.
 
 Model discovery and downloads are app-only operator controls. API clients cannot
 download weights, change model allowlists or select a cloud provider. Hosted
-models and Apple Private Cloud Compute are outside Purple Matter's scope.
+models and Apple Private Cloud Compute are outside Positronic's scope.
 
 ## Bounds and lifecycle
 

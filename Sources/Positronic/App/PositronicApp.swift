@@ -3,16 +3,16 @@ import AppKit
 import Darwin
 
 @main
-struct PurpleMatterApp: App {
+struct PositronicApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @State private var store = AppStore()
     var body: some Scene {
-        WindowGroup("Purple Matter", id: "main") {
+        WindowGroup("Positronic", id: "main") {
             ContentView(store: store).frame(minWidth: 940, minHeight: 650)
                 .task { await store.prepare() }
         }
         .defaultSize(width: 1060, height: 780)
-        MenuBarExtra("Purple Matter", systemImage: "cpu") {
+        MenuBarExtra("Positronic", systemImage: "cpu") {
             Text(store.running ? "API running" : "API stopped")
             OpenWindowButton()
             Button(store.running ? "Stop API" : "Start API") { Task { await store.toggleAPI() } }
@@ -23,7 +23,7 @@ struct PurpleMatterApp: App {
 }
 private struct OpenWindowButton: View {
     @Environment(\.openWindow) private var openWindow
-    var body: some View { Button("Open Purple Matter") { openWindow(id: "main"); NSApp.activate(ignoringOtherApps: true) } }
+    var body: some View { Button("Open Positronic") { openWindow(id: "main"); NSApp.activate(ignoringOtherApps: true) } }
 }
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {

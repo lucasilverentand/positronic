@@ -1,6 +1,6 @@
-# Purple Matter
+# Positronic
 
-<img src="Assets/AppIcon.png" width="128" alt="Purple Matter icon">
+<img src="Assets/AppIcon.png" width="128" alt="Positronic icon">
 
 A small native Mac app for **local models only** that makes the models on your Mac available to local scripts
 and external systems through one authenticated HTTP API.
@@ -29,7 +29,7 @@ language, enabled Apple Intelligence, and its system model to be ready.
 ./script/build_and_run.sh
 ```
 
-This builds and signs `dist/Purple Matter.app` and launches the bundle. The Codex
+This builds and signs `dist/Positronic.app` and launches the bundle. The Codex
 Run action uses this same script. Select a specific development identity with
 `MODEL_API_SIGNING_IDENTITY`, or an ignored `Config/Signing.local` file. The bundle
 identity remains `nl.lucasilverentand.mac-model-api` across rebuilds. The script
@@ -59,7 +59,7 @@ The initial library includes Qwen 3.5, Gemma 4, Llama 3.2, Mistral, DeepSeek R1 
 
 For a fresh setup, choose **Prepare local runtime**. This explicitly downloads
 the pinned Ollama 0.40.12 runtime, verifies its archive checksum and Apple
-signature, and installs it in Purple Matter's private model folder. Model
+signature, and installs it in Positronic's private model folder. Model
 weights remain a separate explicit download. Enable **Start my local runtime
 when the app opens** to restore it before automatic API startup.
 
@@ -126,7 +126,7 @@ runtimes retain their own licenses. Implementation follows Apple’s
 and Ollama’s [generation](https://docs.ollama.com/api/generate) and
 [System One](https://docs.ollama.com/api/systemone) and [embeddings](https://docs.ollama.com/api/embed) contracts.
 
-The Purple Matter rename retains the original bundle identifier and private data folder so existing settings, keys and signing trust remain valid.
+The Positronic rename retains the original bundle identifier and private data folder so existing settings, keys and signing trust remain valid.
 
 ## Live API check
 

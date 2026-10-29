@@ -17,7 +17,7 @@ struct ContentView: View {
                 HStack(spacing: 10) {
                     if let icon = NSImage(named: "AppIcon") { Image(nsImage: icon).resizable().frame(width: 42, height: 42) }
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Purple Matter").font(.headline)
+                        Text("Positronic").font(.headline)
                         Text("Models on your Mac").font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
