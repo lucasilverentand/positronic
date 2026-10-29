@@ -1,0 +1,10 @@
+Mac Model API
+Copyright (c) 2026 Luca Silverentand
+
+JSON values, typed decision contracts, HTTP framing and Apple generation schema
+conversion were extracted and adapted from Seven, authored by Luca Silverentand.
+
+Apple Foundation Models is a system framework, not distributed with this project.
+Ollama and model weights are separately installed operator-provided components;
+their respective licenses continue to apply. This repository contains no model
+weights, Ollama binaries, account credentials or private Seven state.
