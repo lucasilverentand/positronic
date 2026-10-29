@@ -36,10 +36,8 @@ This builds and signs `dist/Positronic.app` and launches the bundle. The Codex
 Run action uses this same script. Select a specific development identity with
 `MODEL_API_SIGNING_IDENTITY`, or an ignored `Config/Signing.local` file. The native [Icon Composer](https://developer.apple.com/icon-composer/) document
 `Assets/AppIcon.icon` compiles into `Assets.car`; macOS renders
-its Liquid Glass edge and appearance variants. The centered brain is a separate
-SVG component with native glass highlights, translucency and shadow over a quiet
-gradient. `script/build_icon.sh` exports the marketing preview and ICNS fallback;
-the SVG contains no baked lighting, clouds or texture. The bundle
+its Liquid Glass edge and appearance variants. `script/build_icon.sh` rebuilds its
+unmasked artwork and marketing preview without baking a rim into the source. The bundle
 identity remains `nl.lucasilverentand.mac-model-api` across rebuilds. The script
 also supports `build`, `--debug`, `--logs`, `--telemetry` and `--verify`.
 
@@ -217,7 +215,7 @@ After PCC is provisioned and enabled, add `--pcc --pcc-reasoning moderate` to ex
 
 ## Icon assets
 
-`Assets/AppIcon.icon/Assets/Brain.svg` is the editable, unmasked foreground component. Its Icon Composer group applies native glass highlights, translucency, refraction and shadow over a separate gradient background. Run `script/build_icon.sh` to export the preview and compiler-generated ICNS fallback. The app build compiles the layered document into its native asset catalog; macOS owns the mask, sizing and appearance variants.
+`Assets/AppIconArtwork.png` holds the editable artwork reference. Run `script/build_icon.sh` to rebuild the normalized 1024-pixel master and complete native icon set. The visible tile is 824 pixels with 100-pixel transparent margins, matching measured Calculator, Notes and Contacts icons. Native continuous corners remove edge debris and the gray rim.
 
 ## Live model lifecycle check
 

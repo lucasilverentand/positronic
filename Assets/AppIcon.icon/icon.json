@@ -1,34 +1,13 @@
 {
-  "fill": {
-    "automatic-gradient": "extended-srgb:0.42,0.61,0.96,1.0"
-  },
+  "fill": { "automatic-gradient": "extended-srgb:0.36,0.62,1.0,1.0" },
   "groups": [
     {
-      "name": "Positronic brain",
-      "layers": [
-        {
-          "image-name": "Brain.svg",
-          "name": "Brain",
-          "glass": true
-        }
-      ],
-      "lighting": "individual",
-      "specular": true,
-      "shadow": {
-        "kind": "layer-color",
-        "opacity": 0.25
-      },
-      "translucency": {
-        "enabled": true,
-        "value": 0.4
-      },
-      "refractivity-depth": 0.25,
-      "refractivity-strength": 0.5
+      "name": "Original violet brain artwork",
+      "layers": [ { "image-name": "Artwork.png", "name": "Violet brain", "glass": false } ],
+      "specular": false,
+      "shadow": { "kind": "neutral", "opacity": 0 },
+      "translucency": { "enabled": false, "value": 0 }
     }
   ],
-  "supported-platforms": {
-    "squares": [
-      "macOS"
-    ]
-  }
+  "supported-platforms": { "squares": [ "macOS" ] }
 }
