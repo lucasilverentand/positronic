@@ -42,7 +42,12 @@ rm -rf "$APP_BUNDLE/Contents/Resources/Audio"
 cp -R "$ROOT_DIR/Resources/Audio" "$APP_BUNDLE/Contents/Resources/Audio"
 cp "$BUILD_DIR/$APP_NAME" "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 cp "$ROOT_DIR/LICENSE" "$ROOT_DIR/NOTICE" "$APP_BUNDLE/Contents/Resources/"
-cp "$ROOT_DIR/Assets/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
+# Compile the native layered icon. macOS owns its Liquid Glass rim, mask and
+# adaptive appearances; the ICNS emitted alongside Assets.car is the fallback.
+xcrun actool "$ROOT_DIR/Assets/AppIcon.icon" \
+  --compile "$APP_BUNDLE/Contents/Resources" --platform macosx \
+  --minimum-deployment-target 26.0 --app-icon AppIcon \
+  --output-partial-info-plist "$BUILD_DIR/Positronic-icon-info.plist"
 cat > "$APP_BUNDLE/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -51,9 +56,10 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<'PLIST'
 <key>CFBundleIdentifier</key><string>nl.lucasilverentand.mac-model-api</string>
 <key>CFBundleName</key><string>Positronic</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>
+<key>CFBundleIconName</key><string>AppIcon</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>0.1.0</string>
-<key>CFBundleVersion</key><string>1</string>
+<key>CFBundleVersion</key><string>2</string>
 <key>LSMinimumSystemVersion</key><string>26.0</string>
 <key>NSMicrophoneUsageDescription</key><string>Record audio for transcription entirely on this Mac.</string>
 <key>NSPrincipalClass</key><string>NSApplication</string>

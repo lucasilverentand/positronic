@@ -5,8 +5,8 @@ import ImageIO
 @MainActor
 func buildIcon() throws {
 
-// Normalize AI artwork into the monolithic macOS icon geometry measured from
-// Calculator, Notes and Contacts: 824 px artwork, 100 px margins, 1024 px canvas.
+// Prepare the preserved artwork as an unmasked, full-bleed 1024 px layer.
+// Icon Composer owns the platform mask, Liquid Glass lighting and margins.
 let arguments = CommandLine.arguments
 guard arguments.count == 3,
       let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: arguments[1]) as CFURL, nil),
@@ -33,30 +33,15 @@ let tile = ZStack {
     LinearGradient(colors: [Color(red: 0.36, green: 0.62, blue: 1), Color(red: 0.65, green: 0.67, blue: 0.96)], startPoint: .top, endPoint: .bottom)
     Image(nsImage: artwork).resizable().interpolation(.high).aspectRatio(contentMode: .fill)
 }
-.frame(width: 824, height: 824)
-.clipped()
-.clipShape(RoundedRectangle(cornerRadius: 185.4, style: .continuous))
-.overlay {
-    // A narrow lighting edge, rather than a gray frame around the artwork.
-    RoundedRectangle(cornerRadius: 185.4, style: .continuous)
-        .strokeBorder(LinearGradient(stops: [
-            .init(color: .white.opacity(0.52), location: 0),
-            .init(color: .white.opacity(0.12), location: 0.45),
-            .init(color: .black.opacity(0.16), location: 1)
-        ], startPoint: .top, endPoint: .bottom), lineWidth: 1.5)
-}
-// Keep the native 824 px tile footprint; cast its shadow into the clear margin.
-.shadow(color: .black.opacity(0.25), radius: 14, x: 0, y: 9)
-.shadow(color: .black.opacity(0.12), radius: 2, x: 0, y: 1)
-.padding(100)
 .frame(width: 1024, height: 1024)
+.clipped()
 let renderer = ImageRenderer(content: tile)
 renderer.scale = 1
 renderer.proposedSize = ProposedViewSize(width: 1024, height: 1024)
 guard let result = renderer.cgImage,
       let png = NSBitmapImageRep(cgImage: result).representation(using: .png, properties: [:]) else { fatalError("Could not render icon.") }
 try png.write(to: URL(fileURLWithPath: arguments[2]))
-print("Source tile: \(sourceRect); output: 1024 canvas / 824 artwork / 100 margin")
+print("Source tile: \(sourceRect); output: unmasked 1024 px Icon Composer artwork")
 
 }
 try MainActor.assumeIsolated { try buildIcon() }

@@ -3,12 +3,10 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ICON_WORK="$(mktemp -d)"
 trap 'rm -rf "$ICON_WORK"' EXIT
-ICONSET="$ICON_WORK/AppIcon.iconset"
-mkdir -p "$ICONSET"
-swift "$ROOT_DIR/script/build_icon.swift" "$ROOT_DIR/Assets/AppIconArtwork.png" "$ROOT_DIR/Assets/AppIcon.png"
-for SIZE in 16 32 128 256 512; do
-  sips -z "$SIZE" "$SIZE" "$ROOT_DIR/Assets/AppIcon.png" --out "$ICONSET/icon_${SIZE}x${SIZE}.png" >/dev/null
-  DOUBLE=$((SIZE * 2))
-  sips -z "$DOUBLE" "$DOUBLE" "$ROOT_DIR/Assets/AppIcon.png" --out "$ICONSET/icon_${SIZE}x${SIZE}@2x.png" >/dev/null
-done
-iconutil -c icns "$ICONSET" -o "$ROOT_DIR/Assets/AppIcon.icns"
+ICON_DOCUMENT="$ROOT_DIR/Assets/AppIcon.icon"
+ICON_COMPOSER="$(xcode-select -p)/../Applications/Icon Composer.app/Contents/Executables/ictool"
+[[ -x "$ICON_COMPOSER" ]] || { echo 'Icon Composer from Xcode 26 or later is required.' >&2; exit 1; }
+swift "$ROOT_DIR/script/build_icon.swift" "$ROOT_DIR/Assets/AppIconArtwork.png" "$ICON_DOCUMENT/Assets/Artwork.png"
+"$ICON_COMPOSER" "$ICON_DOCUMENT" --export-image --output-file "$ROOT_DIR/Assets/AppIcon.png" --platform macOS --rendition Default --width 1024 --height 1024 --scale 1
+xcrun actool "$ICON_DOCUMENT" --compile "$ICON_WORK" --platform macosx --minimum-deployment-target 26.0 --app-icon AppIcon --output-partial-info-plist "$ICON_WORK/IconInfo.plist" >/dev/null
+cp "$ICON_WORK/AppIcon.icns" "$ROOT_DIR/Assets/AppIcon.icns"

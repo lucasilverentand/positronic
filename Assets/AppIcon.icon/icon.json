@@ -1,0 +1,13 @@
+{
+  "fill": { "automatic-gradient": "extended-srgb:0.36,0.62,1.0,1.0" },
+  "groups": [
+    {
+      "name": "Original violet brain artwork",
+      "layers": [ { "image-name": "Artwork.png", "name": "Violet brain", "glass": false } ],
+      "specular": false,
+      "shadow": { "kind": "neutral", "opacity": 0 },
+      "translucency": { "enabled": false, "value": 0 }
+    }
+  ],
+  "supported-platforms": { "squares": [ "macOS" ] }
+}

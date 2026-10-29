@@ -34,7 +34,10 @@ language, enabled Apple Intelligence, and its system model to be ready.
 
 This builds and signs `dist/Positronic.app` and launches the bundle. The Codex
 Run action uses this same script. Select a specific development identity with
-`MODEL_API_SIGNING_IDENTITY`, or an ignored `Config/Signing.local` file. The bundle
+`MODEL_API_SIGNING_IDENTITY`, or an ignored `Config/Signing.local` file. The native [Icon Composer](https://developer.apple.com/icon-composer/) document
+`Assets/AppIcon.icon` compiles into `Assets.car`; macOS renders
+its Liquid Glass edge and appearance variants. `script/build_icon.sh` rebuilds its
+unmasked artwork and marketing preview without baking a rim into the source. The bundle
 identity remains `nl.lucasilverentand.mac-model-api` across rebuilds. The script
 also supports `build`, `--debug`, `--logs`, `--telemetry` and `--verify`.
 
