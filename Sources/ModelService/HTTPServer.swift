@@ -47,14 +47,15 @@ public final class LoopbackServer: @unchecked Sendable {
     private let handler: @Sendable (HTTPRequest) async -> HTTPResponse
     private let authorizeUpload: @Sendable (HTTPRequest) async -> Bool
     private let uploadDirectory: URL
+    private let diskBudget: UploadDiskBudget
     public var port: UInt16? { listener.port?.rawValue }
-    public init(port: UInt16 = 18767, allowNetwork: Bool = false, uploadDirectory: URL = AudioCatalog.jobsDirectory, authorizeUpload: @escaping @Sendable (HTTPRequest) async -> Bool = { _ in false }, handler: @escaping @Sendable (HTTPRequest) async -> HTTPResponse) throws {
+    public init(port: UInt16 = 18767, allowNetwork: Bool = false, uploadDirectory: URL = AudioCatalog.jobsDirectory, checkDisk: @escaping @Sendable (URL, Int64) throws -> Void = { try ResourceMonitor.requireDisk(at: $0, additional: $1) }, authorizeUpload: @escaping @Sendable (HTTPRequest) async -> Bool = { _ in false }, handler: @escaping @Sendable (HTTPRequest) async -> HTTPResponse) throws {
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: allowNetwork ? "0.0.0.0" : "127.0.0.1", port: NWEndpoint.Port(rawValue: port)!)
-        self.listener = try NWListener(using: parameters); self.handler = handler; self.authorizeUpload = authorizeUpload; self.uploadDirectory = uploadDirectory
+        self.listener = try NWListener(using: parameters); self.handler = handler; self.authorizeUpload = authorizeUpload; self.uploadDirectory = uploadDirectory; self.diskBudget = UploadDiskBudget(directory: uploadDirectory, check: checkDisk)
     }
     public func run(onReady: @escaping @Sendable () -> Void = {}) async throws {
-        let listener = listener, handler = handler, peers = peers, authorizeUpload = authorizeUpload, uploadDirectory = uploadDirectory
+        let listener = listener, handler = handler, peers = peers, authorizeUpload = authorizeUpload, uploadDirectory = uploadDirectory, diskBudget = diskBudget
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
                 let completion = ListenerCompletion(continuation)
@@ -63,7 +64,7 @@ public final class LoopbackServer: @unchecked Sendable {
                 }
                 listener.newConnectionHandler = { connection in
                     guard peers.insert(connection) else { connection.cancel(); return }
-                    let peer = HTTPPeer(connection: connection, handler: handler, authorizeUpload: authorizeUpload, uploadDirectory: uploadDirectory)
+                    let peer = HTTPPeer(connection: connection, handler: handler, authorizeUpload: authorizeUpload, uploadDirectory: uploadDirectory, diskBudget: diskBudget)
                     connection.stateUpdateHandler = { state in
                         if case .cancelled = state { peers.remove(connection); Task { await peer.close() } }
                         if case .failed = state { peers.remove(connection); Task { await peer.close() } }
@@ -105,6 +106,8 @@ private actor HTTPPeer {
     private let handler: @Sendable (HTTPRequest) async -> HTTPResponse
     private let authorizeUpload: @Sendable (HTTPRequest) async -> Bool
     private let uploadDirectory: URL
+    private let diskBudget: UploadDiskBudget
+    private var diskReservation: UUID?
     private var upload: URL?
     private var uploadHandle: FileHandle?
     private var uploadRequest: HTTPRequest?
@@ -113,7 +116,7 @@ private actor HTTPPeer {
     private var responseFile: FileHandle?
     private var buffer = Data(); private var finished = false; private var work: Task<Void, Never>?
     private var deadline: Task<Void, Never>?
-    init(connection: NWConnection, handler: @escaping @Sendable (HTTPRequest) async -> HTTPResponse, authorizeUpload: @escaping @Sendable (HTTPRequest) async -> Bool, uploadDirectory: URL) { self.uploadDirectory = uploadDirectory; self.connection = connection; self.handler = handler; self.authorizeUpload = authorizeUpload }
+    init(connection: NWConnection, handler: @escaping @Sendable (HTTPRequest) async -> HTTPResponse, authorizeUpload: @escaping @Sendable (HTTPRequest) async -> Bool, uploadDirectory: URL, diskBudget: UploadDiskBudget) { self.diskBudget = diskBudget; self.uploadDirectory = uploadDirectory; self.connection = connection; self.handler = handler; self.authorizeUpload = authorizeUpload }
     func start() {
         receive()
         armDeadline(seconds: 130)
@@ -140,7 +143,9 @@ private actor HTTPPeer {
             if let (request, length, offset) = try AudioHTTPHeader.parse(buffer) {
                 guard await authorizeUpload(request) else { send(.error("API key required.", status: 401)); return }
                 guard !finished else { return }
-                try ResourceMonitor.requireDisk(at: uploadDirectory, additional: Int64(length) + 128 * 1024 * 1024)
+                let reservation = try await diskBudget.reserve(Int64(length) + 128 * 1024 * 1024)
+                guard !finished else { await diskBudget.release(reservation); return }
+                diskReservation = reservation
                 let directory = uploadDirectory.appendingPathComponent("Uploads")
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
                 let file = directory.appendingPathComponent(UUID().uuidString)
@@ -174,6 +179,10 @@ private actor HTTPPeer {
         }
     }
     private func discardUpload() {
+        if let reservation = diskReservation {
+            diskReservation = nil; let diskBudget = diskBudget
+            Task { await diskBudget.release(reservation) }
+        }
         try? uploadHandle?.close(); uploadHandle = nil
         if let upload { try? FileManager.default.removeItem(at: upload) }; upload = nil
     }
@@ -211,4 +220,17 @@ private actor HTTPPeer {
         finished = true; deadline?.cancel(); deadline = nil; work?.cancel(); work = nil
         discardUpload(); try? responseFile?.close(); responseFile = nil; connection.cancel()
     }
+}
+
+/// Counts projected concurrent upload writes together before any private file is created.
+actor UploadDiskBudget {
+    private let directory: URL
+    private let check: @Sendable (URL, Int64) throws -> Void
+    private var reservations: [UUID: Int64] = [:]
+    init(directory: URL, check: @escaping @Sendable (URL, Int64) throws -> Void) { self.directory = directory; self.check = check }
+    func reserve(_ bytes: Int64) throws -> UUID {
+        try check(directory, reservations.values.reduce(bytes,+))
+        let id = UUID(); reservations[id] = bytes; return id
+    }
+    func release(_ id: UUID) { reservations.removeValue(forKey:id) }
 }

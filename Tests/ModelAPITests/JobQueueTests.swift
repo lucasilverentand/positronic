@@ -110,6 +110,7 @@ final class JobQueueTests: XCTestCase, @unchecked Sendable {
         let resources = MutableResources(), first = queue(resources, directory: folder), second = queue(resources, directory: folder)
         try await first.start(); let file = folder.appendingPathComponent("orphan"); try Data([1]).write(to: file)
         do { try await second.start(); XCTFail("Another process owns jobs") } catch {}
+        await second.shutdown()
         XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
         await first.shutdown(); try Data([1]).write(to: file)
         try await second.start(); XCTAssertFalse(FileManager.default.fileExists(atPath: file.path)); await second.shutdown()
@@ -166,5 +167,18 @@ extension JobQueueTests {
         let owner=UUID();await queue.revoke(owner)
         do { _ = try await queue.submit(model:"fixture",operation:"fixture",owner:owner,budget:0) { _ in XCTFail("Revoked key admitted");return .init(data:Data()) };XCTFail("Revoked owner") } catch {}
         await queue.shutdown()
+    }
+}
+extension JobQueueTests {
+    func testNextJobWaitsForResourceReleaseAfterCancellation() async throws {
+        let resources=MutableResources(),queue=queue(resources),log=OrderLog(),started=expectation(description:"Started")
+        await queue.configure(prepare:{ _ in },cancelWorker:{
+            try? await Task.sleep(for:.milliseconds(100));await log.add(1)
+        })
+        let first=try await queue.submit(model:"fixture",operation:"fixture",budget:0) { _ in started.fulfill();try await Task.sleep(for:.seconds(30));return .init(data:Data()) }
+        await fulfillment(of:[started],timeout:2)
+        let second=try await queue.submit(model:"fixture",operation:"fixture",budget:0) { _ in await log.add(2);return .init(data:Data()) }
+        try await queue.cancel(first.id);_ = try await queue.wait(second.id)
+        let order=await log.order;XCTAssertEqual(order,[1,2]);await queue.shutdown()
     }
 }

@@ -75,7 +75,7 @@ extension AudioTests {
         let input=dir.appendingPathComponent("input.wav");try wave(input,seconds:4)
         XCTAssertGreaterThan(try Data(contentsOf:input).count,1_000_000)
         let ready=expectation(description:"Ready"),seen=expectation(description:"Streamed upload")
-        let server=try LoopbackServer(port:0,uploadDirectory:dir,authorizeUpload:{ $0.bearer == "synthetic-test-token" }) { request in
+        let server=try LoopbackServer(port:0,uploadDirectory:dir,checkDisk:{ _,_ in },authorizeUpload:{ $0.bearer == "synthetic-test-token" }) { request in
             do {
                 XCTAssertTrue(request.body.isEmpty)
                 let source=try XCTUnwrap(request.upload)
@@ -93,5 +93,16 @@ extension AudioTests {
         await fulfillment(of:[seen],timeout:2)
         XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath:dir.appendingPathComponent("Uploads").path).isEmpty)
         server.stop();try await task.value
+    }
+}
+extension AudioTests {
+    func testConcurrentUploadReservationsPreserveProjectedDiskSpace() async throws {
+        let budget=UploadDiskBudget(directory:FileManager.default.temporaryDirectory) { _,bytes in
+            guard bytes <= 200 << 20 else { throw ModelAPIError.unavailable("Injected low disk") }
+        }
+        let first=try await budget.reserve(150 << 20)
+        do { _ = try await budget.reserve(150 << 20);XCTFail("Concurrent projected writes exceeded capacity") } catch {}
+        await budget.release(first)
+        let next=try await budget.reserve(150 << 20);await budget.release(next)
     }
 }

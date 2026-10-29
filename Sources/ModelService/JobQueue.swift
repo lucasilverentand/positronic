@@ -29,6 +29,7 @@ public actor JobQueue {
     private var pumping: Task<Void, Never>?
     private var running: Task<JobResult, any Error>?
     private var monitor: Task<Void, Never>?
+    private var releasing: Task<Void, Never>?
     private var reaper: Task<Void, Never>?
     private var started = false
     private var stopped = false
@@ -99,8 +100,8 @@ public actor JobQueue {
     public func cancel(_ id: UUID, owner: UUID? = nil) async throws {
         let info = try job(id, owner: owner); guard !info.state.terminal else { return }
         pending.removeAll { $0 == id }
-        if current == id { running?.cancel(); await cancelWorker?() }
         finish(id, state: .cancelled, message: "Cancelled.")
+        if current == id { running?.cancel(); await releaseResources() }
     }
     public func revoke(_ owner: UUID) async {
         revoked.insert(owner)
@@ -113,8 +114,9 @@ public actor JobQueue {
     public func endManagement() { managing = false }
     public func hasActiveWork() -> Bool { current != nil }
     public func shutdown() async {
+        guard started, lockFD >= 0 else { stopped = true; return }
         stopped = true; reaper?.cancel(); reaper = nil; pumping?.cancel(); running?.cancel(); monitor?.cancel()
-        await cancelWorker?()
+        await releaseResources()
         _ = try? await running?.value
         await pumping?.value
         for id in Array(entries.keys) { if entries[id]?.info.state.terminal == false { finish(id, state: .cancelled, message: "App stopped; resubmit from your client.") } }
@@ -167,7 +169,7 @@ public actor JobQueue {
                     } catch { update(id, state: .waitingForResources, message: "Resource telemetry unavailable; waiting safely.") }
                     try await Task.sleep(for: interval)
                 }
-                guard entries[id]?.info.state.terminal == false else { current = nil; continue }
+                guard entries[id]?.info.state.terminal == false else { await releasing?.value; current = nil; continue }
                 guard let baseline = admitted else { throw ModelAPIError.unavailable("Resource wait expired after ten minutes. Retry when resources are available.") }
                 try Task.checkCancellation()
                 pending.removeAll { $0 == id }
@@ -190,6 +192,7 @@ public actor JobQueue {
                 }
             } catch is CancellationError { finish(id, state: .cancelled, message: "Cancelled.") }
             catch { finish(id, state: .failed, message: error.localizedDescription) }
+            await releasing?.value
             cleanup(id)
             monitor?.cancel(); monitor = nil; running = nil; current = nil
             pending.removeAll { $0 == id }
@@ -205,12 +208,20 @@ public actor JobQueue {
                 let critical = snapshot.pressure >= 4 || snapshot.thermal >= 3 || snapshot.swap - (samples.first?.1 ?? baseline.swap) > 256 * 1024 * 1024 || snapshot.available < max(8 * 1024 * 1024 * 1024, snapshot.physical / 5)
                 let memory = critical ? 0 : try await footprint?() ?? 0
                 if critical || memory > (budget ?? Int64.max) {
-                    running?.cancel(); await cancelWorker?()
-                    finish(id, state: .failed, message: "Stopped to protect system resources. Retry after memory pressure clears."); return
+                    finish(id, state: .failed, message: "Stopped to protect system resources. Retry after memory pressure clears.")
+                    running?.cancel(); await releaseResources(); return
                 }
             } catch is CancellationError { return }
-            catch { running?.cancel(); await cancelWorker?(); finish(id, state: .failed, message: "Stopped because resource telemetry became unavailable."); return }
+            catch { finish(id, state: .failed, message: "Stopped because resource telemetry became unavailable."); running?.cancel(); await releaseResources(); return }
         }
+    }
+    private func releaseResources() async {
+        if let releasing { await releasing.value; return }
+        let handler = cancelWorker
+        let task = Task<Void, Never> { await handler?() }
+        releasing = task
+        await task.value
+        releasing = nil
     }
     private func finish(_ id: UUID, state: JobState, message: String) {
         guard entries[id]?.info.state.terminal == false else { return }
