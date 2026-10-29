@@ -140,3 +140,7 @@ The check exercises authenticated discovery, Apple and Qwen structured generatio
 Clef decisions and embedding batches using synthetic text. Model IDs can be
 changed with its flags. It prints receipts and timings without printing the key
 or vector contents. These are functional checks, not model-quality benchmarks.
+
+## Icon assets
+
+`Assets/AppIconArtwork.png` holds the editable artwork reference. Run `script/build_icon.sh` to rebuild the normalized 1024-pixel master and complete native icon set. The visible tile is 824 pixels with 100-pixel transparent margins, matching measured Calculator, Notes and Contacts icons. Native continuous corners remove edge debris and the gray rim.
