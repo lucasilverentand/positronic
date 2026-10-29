@@ -36,6 +36,18 @@ let tile = ZStack {
 .frame(width: 824, height: 824)
 .clipped()
 .clipShape(RoundedRectangle(cornerRadius: 185.4, style: .continuous))
+.overlay {
+    // A narrow lighting edge, rather than a gray frame around the artwork.
+    RoundedRectangle(cornerRadius: 185.4, style: .continuous)
+        .strokeBorder(LinearGradient(stops: [
+            .init(color: .white.opacity(0.52), location: 0),
+            .init(color: .white.opacity(0.12), location: 0.45),
+            .init(color: .black.opacity(0.16), location: 1)
+        ], startPoint: .top, endPoint: .bottom), lineWidth: 1.5)
+}
+// Keep the native 824 px tile footprint; cast its shadow into the clear margin.
+.shadow(color: .black.opacity(0.25), radius: 14, x: 0, y: 9)
+.shadow(color: .black.opacity(0.12), radius: 2, x: 0, y: 1)
 .padding(100)
 .frame(width: 1024, height: 1024)
 let renderer = ImageRenderer(content: tile)
