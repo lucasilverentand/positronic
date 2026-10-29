@@ -17,10 +17,10 @@ if [[ "$MODE" != build ]]; then
   pkill -TERM -x PurpleMatter >/dev/null 2>&1 || true
   pkill -TERM -x MacModelAPI >/dev/null 2>&1 || true
   for ATTEMPT in {1..30}; do
-    if ! pgrep -x "$APP_NAME" >/dev/null && ! pgrep -x MacModelAPI >/dev/null; then break; fi
+    if ! pgrep -x "$APP_NAME" >/dev/null && ! pgrep -x MacModelAPI >/dev/null && ! pgrep -x PurpleMatter >/dev/null; then break; fi
     sleep 0.2
   done
-  if pgrep -x "$APP_NAME" >/dev/null || pgrep -x MacModelAPI >/dev/null; then
+  if pgrep -x "$APP_NAME" >/dev/null || pgrep -x MacModelAPI >/dev/null || pgrep -x PurpleMatter >/dev/null; then
     echo 'The previous app is still shutting down. No second instance was launched.' >&2
     exit 1
   fi
