@@ -18,10 +18,16 @@ struct PlaygroundView: View {
         GroupBox {
             VStack(alignment: .leading, spacing: 14) {
                 Picker("Model", selection: $model) {
-                    ForEach(store.models.filter { $0.capability == "generation" && $0.available }) { info in
-                        Text(info.id == "apple" ? "Apple · On device" : info.id == "apple-pcc" ? "Apple · Private Cloud Compute" : info.id).tag(info.id)
+                    ForEach(store.models.filter { $0.capability == "generation" && ($0.available || $0.id == model) }) { info in
+                        Text(modelTitle(info)).tag(info.id).disabled(!info.available)
+                    }
+                    if !store.models.contains(where: { $0.id == model && $0.capability == "generation" }) {
+                        Text("\(model) · Unavailable").tag(model).disabled(true)
                     }
                 }.disabled(generating)
+                if !modelAvailable {
+                    Text("This model is unavailable. Select a ready model or check its access in Your models.").font(.callout).foregroundStyle(.secondary)
+                }
                 if cloudSelected {
                     Picker("Reasoning", selection: $reasoning) {
                         ForEach(ReasoningLevel.allCases, id: \.self) { Text($0.rawValue.capitalized).tag($0) }
@@ -41,6 +47,10 @@ struct PlaygroundView: View {
         }
         if !answer.isEmpty { GroupBox("Response") { Text(answer).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).padding(12) } }
         if !error.isEmpty { Label(error, systemImage: "exclamationmark.circle").foregroundStyle(.red) }
+    }
+    private func modelTitle(_ info: ModelInfo) -> String {
+        let name = info.id == "apple" ? "Apple · On device" : info.id == "apple-pcc" ? "Apple · Private Cloud Compute" : info.id
+        return name + (info.available ? "" : " · Unavailable")
     }
     private func generate() {
         generating = true; error = ""; answer = ""
