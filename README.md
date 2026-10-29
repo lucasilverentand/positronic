@@ -45,7 +45,8 @@ swift test
 
 ## App pages
 
-**Models** manages downloads, memory loading, removal and API enable switches.
+**Your models** shows all model types together in a searchable list, with memory, API access, load/unload and confirmed removal in the selected model’s detail pane.
+**Discover** is a separate searchable catalog with generation, decision and embedding sections, plus a persistent download progress bar across pages.
 **Playground** runs generation without saving prompts, with explicit cloud labeling and PCC reasoning controls.
 **API & Keys** controls serving and client credentials.
 **Settings** contains startup, runtime and network options.
@@ -54,7 +55,7 @@ model allowlist updates new requests without interrupting accepted work.
 
 ## Set up models
 
-Apple availability appears automatically. Choose **Use installed Ollama** to connect to Ollama on this Mac, or enter another loopback runtime URL. The model library discovers installed models, reads their capabilities and offers explicit API enable switches. Browse Generation, Decisions and Embeddings for additional models. Choose **Download** to install one through the local runtime, with progress and cancellation; enable it for API clients after installation. Starting the API and refreshing the list never download models. Cloud tags and discovered remote model aliases are excluded.
+Apple availability appears automatically. Choose **Use installed Ollama** to connect to Ollama on this Mac, or enter another loopback runtime URL. The model library discovers installed models, reads their capabilities and offers explicit API enable switches. Open Discover for the Generation, Decisions and Embeddings sections; search by model name or type. Choose **Download** to install one through the local runtime, with progress and cancellation; enable it for API clients after installation. Starting the API and refreshing the list never download models. Cloud tags and discovered remote model aliases are excluded.
 
 Use **Load** to prepare an installed model in memory, and **Unload** to release its memory while keeping its files. Memory status refreshes while the Models page is open; aliases sharing the same weights share this status. Enabled models reload on demand when requested by an API client. Explicit loads stay warm for up to 30 minutes, subject to runtime memory pressure and other requests; the prepared runtime allows one loaded model at a time.
 
@@ -83,7 +84,7 @@ Avoid running multiple large models simultaneously on a memory-constrained Mac.
 
 ## Optional Apple Private Cloud Compute
 
-PCC is a separate model, `apple-pcc`, and is off by default, including when loading older settings. Enable **Allow Private Cloud Compute for Playground and API clients** on the Models page when using a provisioned build. API clients must select `apple-pcc` explicitly; `apple` always uses the on-device model and Ollama tags retain their local routing. There is no automatic cloud fallback. A failed PCC request is returned as an error.
+PCC is a separate model, `apple-pcc`, and is off by default, including when loading older settings. Enable **Allow Private Cloud Compute for Playground and API clients** in the Private Cloud Compute detail pane under Your models when using a provisioned build. API clients must select `apple-pcc` explicitly; `apple` always uses the on-device model and Ollama tags retain their local routing. There is no automatic cloud fallback. A failed PCC request is returned as an error.
 
 The Playground exposes light, moderate and deep reasoning when PCC is selected. The API accepts `reasoningLevel` with the same values and defaults to `moderate`. Text and the supported structured-output schema subset are available. Model discovery labels execution as `local` or `applePrivateCloudCompute` and advertises PCC reasoning levels. Availability includes entitlement, OS readiness and Apple quota checks. Near-limit, quota-exhaustion, network and service failures have actionable messages. The app does not buy subscriptions or increase quota automatically; quotas and plan terms are controlled by Apple.
 

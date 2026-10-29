@@ -3,60 +3,73 @@ import ModelService
 
 struct ModelsPage: View {
     @Bindable var store: AppStore
+    var discover: () -> Void
+    var tryModel: (String) -> Void
+    @State private var search = ""
+    @State private var selectedID: String?
+    private var models: [ManagedModel] { ManagedModel.all(in: store) }
+    private var filtered: [ManagedModel] {
+        let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        return models.filter { query.isEmpty || $0.matchesSearch.localizedCaseInsensitiveContains(query) }
+    }
+    private var selected: ManagedModel? { models.first { $0.id == selectedID } }
     var body: some View {
-        PageHeading(title: "Your models", detail: "Discover, download and enable models without stopping your API.")
-        if let apple = store.models.first(where: { $0.id == "apple" }) {
-            GroupBox {
-                HStack(spacing: 12) {
-                    Image(systemName: "apple.logo").font(.title)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Apple Intelligence · On device").font(.headline)
-                        Text(apple.detail + " · Managed by macOS").font(.callout).foregroundStyle(.secondary)
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Your models").font(.largeTitle.bold())
+                        Text("\(store.installedModels.count) downloaded · \(store.loadedModels.count) loaded")
+                            .font(.callout).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Label(apple.available ? "Ready" : "Unavailable", systemImage: apple.available ? "checkmark.circle.fill" : "circle").foregroundStyle(apple.available ? Color.green : .secondary)
-                }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        if let cloud = store.models.first(where: { $0.id == "apple-pcc" }) {
-            GroupBox {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        Label("Apple Private Cloud Compute", systemImage: "cloud").font(.headline)
-                        Spacer()
-                        Text(cloud.available ? "Ready" : store.configuration.allowApplePCC ? "Unavailable" : "Off")
-                            .foregroundStyle(cloud.available ? Color.green : .secondary)
+                    Button { discover() } label: { Label("Discover", systemImage: "plus") }
+                        .buttonStyle(.borderedProminent)
+                }.padding(.horizontal, 24).padding(.top, 24)
+                TextField("Search models, types or model IDs", text: $search)
+                    .textFieldStyle(.roundedBorder).padding(.horizontal, 24)
+                List(selection: $selectedID) {
+                    let apple = filtered.filter { $0.location != .downloaded }
+                    if !apple.isEmpty {
+                        Section("Apple Intelligence") {
+                            ForEach(apple) { model in ModelBrowserRow(store: store, model: model).tag(model.id) }
+                        }
                     }
-                    Text("Runs on Apple’s servers. Use light, moderate or deep reasoning for more complex requests.").font(.callout).foregroundStyle(.secondary)
-                    Toggle("Allow Private Cloud Compute for Playground and API clients", isOn: Binding(
-                        get: { store.configuration.allowApplePCC },
-                        set: { enabled in Task { await store.setApplePCC(enabled) } }
-                    )).disabled(store.managingModels)
-                    Text(cloud.detail).font(.callout).foregroundStyle(.secondary)
-                    Text("Clients must select apple-pcc explicitly. Requests to local models stay on this Mac. Apple applies a daily quota; Positronic never upgrades your plan automatically.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    Link("Apple access requirements", destination: URL(string: "https://developer.apple.com/private-cloud-compute/")!)
-                }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        if !store.modelLibraryMessage.isEmpty {
-            GroupBox {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Connect a local runtime").font(.headline)
-                    Text("Prepare a private runtime for Positronic, or connect to an Ollama service already running on this Mac.").foregroundStyle(.secondary)
-                    HStack {
-                        Button("Prepare local runtime") { Task { await store.prepareRuntime() } }.buttonStyle(.borderedProminent)
-                        Button("Use installed Ollama") { Task { await store.connectToOllama() } }
-                    }.disabled(store.busy || store.downloading != nil)
-                }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        GroupBox { ModelLibraryView(store: store).padding(14) }
-            .task {
-                while !Task.isCancelled {
-                    await store.refreshLoaded()
-                    do { try await Task.sleep(for: .seconds(3)) } catch { break }
+                    let downloaded = filtered.filter { $0.location == .downloaded }
+                    if !downloaded.isEmpty {
+                        Section("Downloaded on this Mac") {
+                            ForEach(downloaded) { model in ModelBrowserRow(store: store, model: model).tag(model.id) }
+                        }
+                    }
+                }.listStyle(.inset).overlay {
+                    if filtered.isEmpty { ContentUnavailableView.search(text: search) }
                 }
+                if store.installedModels.isEmpty && search.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Make room for your first local model").font(.headline)
+                        Text("Discover generation, decision and embedding models to run on this Mac.").foregroundStyle(.secondary)
+                        Button("Browse model library", action: discover)
+                    }.padding(24)
+                }
+            }.frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            Divider()
+            ScrollView {
+                if let selected { ModelDetailView(store: store, model: selected, tryModel: tryModel).id(selected.id).padding(24) }
+                else {
+                    ContentUnavailableView("Select a model", systemImage: "cpu", description: Text("Inspect its memory, API access and model details here."))
+                        .padding(.top, 80)
+                }
+            }.frame(minWidth: 285, idealWidth: 320, maxWidth: 340)
+        }
+        .onChange(of: filtered.map(\.id), initial: true) {
+            guard !filtered.contains(where: { $0.id == selectedID }) else { return }
+            selectedID = filtered.first { $0.installed?.capability == .generation }?.id ?? filtered.first?.id
+        }
+        .task {
+            while !Task.isCancelled {
+                await store.refreshLoaded()
+                do { try await Task.sleep(for: .seconds(3)) } catch { break }
             }
+        }
     }
 }

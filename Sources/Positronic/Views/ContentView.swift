@@ -1,16 +1,13 @@
 import SwiftUI
 import AppKit
 
-private enum AppPage: String, CaseIterable, Identifiable {
-    case models, playground, api, settings
-    var id: Self { self }
-    var title: String { switch self { case .models: "Models"; case .playground: "Playground"; case .api: "API & Keys"; case .settings: "Settings" } }
-    var symbol: String { switch self { case .models: "square.stack.3d.up"; case .playground: "text.bubble"; case .api: "network"; case .settings: "gearshape" } }
-}
-
 struct ContentView: View {
     @Bindable var store: AppStore
     @State private var selection: AppPage? = .models
+    @State private var playgroundModel = "apple"
+    init(store: AppStore, initialPage: AppPage = .models) {
+        self.store = store; _selection = State(initialValue: initialPage)
+    }
     var body: some View {
         NavigationSplitView {
             VStack(spacing: 0) {
@@ -22,32 +19,47 @@ struct ContentView: View {
                     }
                     Spacer()
                 }.padding(18)
-                List(AppPage.allCases, selection: $selection) { page in Label(page.title, systemImage: page.symbol).tag(page) }
-                    .listStyle(.sidebar)
+                List(selection: $selection) {
+                    Section("Models") {
+                        ForEach([AppPage.models, .discover]) { page in Label(page.title, systemImage: page.symbol).tag(page) }
+                    }
+                    Section("Workspace") {
+                        ForEach([AppPage.playground, .api, .settings]) { page in Label(page.title, systemImage: page.symbol).tag(page) }
+                    }
+                }.listStyle(.sidebar)
                 VStack(alignment: .leading, spacing: 8) {
                     Label(store.running ? "API running" : store.apiStarting ? "API starting…" : "API stopped", systemImage: store.running ? "circle.fill" : "circle")
                         .foregroundStyle(store.running ? Color.green : .secondary)
                     Text(store.configuration.allowApplePCC ? "Local models + optional Apple cloud" : "Local inference · Apple cloud off").font(.caption).foregroundStyle(.secondary)
                 }.frame(maxWidth: .infinity, alignment: .leading).padding(18)
-            }.navigationSplitViewColumnWidth(min: 205, ideal: 235, max: 280)
+            }.navigationSplitViewColumnWidth(min: 190, ideal: 215, max: 260)
         } detail: {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
-                    switch selection ?? .models {
-                    case .models: ModelsPage(store: store)
-                    case .playground: PlaygroundView(store: store)
-                    case .api: APIPage(store: store)
-                    case .settings: SettingsPage(store: store)
+            VStack(spacing: 0) {
+                switch selection ?? .models {
+                case .models:
+                    ModelsPage(store: store, discover: { selection = .discover }, tryModel: openPlayground)
+                case .discover:
+                    DiscoverModelsPage(store: store)
+                default:
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 22) {
+                            switch selection ?? .models {
+                            case .playground: PlaygroundView(store: store, model: $playgroundModel)
+                            case .api: APIPage(store: store)
+                            case .settings: SettingsPage(store: store)
+                            default: EmptyView()
+                            }
+                        }.frame(maxWidth: 860, alignment: .leading).padding(28).frame(maxWidth: .infinity, alignment: .topLeading)
                     }
-                    if !store.message.isEmpty {
-                        Label(store.message, systemImage: "info.circle").font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
-                    }
-                }.frame(maxWidth: 860, alignment: .leading).padding(28).frame(maxWidth: .infinity, alignment: .topLeading)
+                }
+                if store.downloading != nil { Divider(); DownloadStatusView(store: store) }
+                if !store.message.isEmpty { ModelStatusBanner(store: store) }
             }
             .navigationTitle((selection ?? .models).title)
             .toolbar { ToolbarItem { Button { Task { await store.refresh() } } label: { Label("Refresh", systemImage: "arrow.clockwise") }.disabled(store.busy) } }
         }
     }
+    private func openPlayground(_ model: String) { playgroundModel = model; selection = .playground }
 }
 
 struct PageHeading: View {

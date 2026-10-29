@@ -4,7 +4,7 @@ import ModelService
 
 struct PlaygroundView: View {
     @Bindable var store: AppStore
-    @State private var model = "apple"
+    @Binding var model: String
     @State private var prompt = ""
     @State private var reasoning: ReasoningLevel = .moderate
     private var cloudSelected: Bool { model == "apple-pcc" }
