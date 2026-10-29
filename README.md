@@ -1,5 +1,7 @@
 # Mac Model API
 
+<img src="Assets/AppIcon.png" width="128" alt="Mac Model API icon">
+
 A small native Mac app that makes the models on your Mac available to local scripts
 and external systems through one authenticated HTTP API. The name is provisional.
 

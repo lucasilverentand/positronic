@@ -9,7 +9,11 @@ struct ContentView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 HStack(spacing: 14) {
-                    Image(systemName: "cpu").font(.largeTitle).foregroundStyle(.tint)
+                    if let icon = NSImage(named: "AppIcon") {
+                        Image(nsImage: icon).resizable().interpolation(.high).frame(width: 72, height: 72)
+                    } else {
+                        Image(systemName: "cpu").font(.largeTitle).foregroundStyle(.tint)
+                    }
                     VStack(alignment: .leading) {
                         Text("Mac Model API").font(.largeTitle.bold())
                         Text("A simple API for the models on your Mac.").foregroundStyle(.secondary)
