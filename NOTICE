@@ -6,7 +6,7 @@ conversion were extracted and adapted from Seven, authored by Luca Silverentand.
 
 Apple Foundation Models is a system framework, not distributed with this project.
 Ollama and model weights are separately installed operator-provided components;
-their respective licenses continue to apply. This repository contains no model
+their respective licenses continue to apply. This repository contains no generative-model
 weights, Ollama binaries, account credentials or private Seven state.
 
 Local audio is separately installed from MLX-Audio (MIT), Whisper Large V3 Turbo
@@ -15,3 +15,9 @@ packaged default voice conditioning. Their upstream licenses and model cards
 apply. The repository contains download manifests and a hashed Python dependency
 lock, not their binaries or weights. Installed Python packages retain their own
 license metadata. See Resources/Audio/README.md for pinned provenance.
+
+Local microphone cleanup bundles SpeexDSP 1.2.1 and RNNoise 0.1.1 under their
+BSD-style licenses. RNNoise includes its small original embedded denoising network.
+Their full copyright/license notices are in ThirdParty/SpeexDSP/NOTICES and
+ThirdParty/RNNoise/NOTICES and are copied into the app resources. See
+ThirdParty/README.md for immutable source provenance and build configuration.

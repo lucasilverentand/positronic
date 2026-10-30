@@ -20,6 +20,7 @@ public actor RealtimeSession {
     public typealias Emit = @Sendable (RealtimeEvent) async throws -> Void
     private let backend: any RealtimeBackend
     private let emit: Emit
+    private let prepareAudio: (@Sendable () async throws -> Void)?
     private var input: [(pcm: Data, received: ContinuousClock.Instant, sequence: Int)] = []
     private var activated: Bool
     private var awaitingFirstSpeech: Bool
@@ -38,7 +39,7 @@ public actor RealtimeSession {
     private var speaking = false
     private var muted = false
     private var outputAge: ContinuousClock.Instant?
-    public init(backend: any RealtimeBackend, startPaused: Bool = false, waitForSpeech: Bool = false, emit: @escaping Emit) { self.backend = backend; self.emit = emit; activated = !startPaused; awaitingFirstSpeech = waitForSpeech }
+    public init(backend: any RealtimeBackend, startPaused: Bool = false, waitForSpeech: Bool = false, prepareAudio: (@Sendable () async throws -> Void)? = nil, emit: @escaping Emit) { self.backend = backend; self.emit = emit; self.prepareAudio = prepareAudio; activated = !startPaused; awaitingFirstSpeech = waitForSpeech }
     public func activate() { activated = true }
     public func receive(_ event: RealtimeEvent) async throws {
         guard !closed else { throw CancellationError() }
@@ -76,6 +77,8 @@ public actor RealtimeSession {
         do {
             try Task.checkCancellation(); guard !closed else { throw CancellationError() }
             while !activated { try Task.checkCancellation(); guard !closed else { throw CancellationError() }; try await Task.sleep(for: .milliseconds(5)) }
+            try await prepareAudio?()
+            try Task.checkCancellation(); guard !closed else { throw CancellationError() }
             try await backend.begin(configuration)
             try Task.checkCancellation(); guard !closed else { throw CancellationError() }
             ready = true; lastInput = .now
@@ -156,7 +159,7 @@ public struct RealtimeService: Sendable {
             return try .json(["status": "ended"])
         }
     }
-    public func makeSession(startPaused: Bool = false, waitForSpeech: Bool = false, emit: @escaping RealtimeSession.Emit) -> RealtimeSession { RealtimeSession(backend: backend, startPaused: startPaused, waitForSpeech: waitForSpeech, emit: emit) }
+    public func makeSession(startPaused: Bool = false, waitForSpeech: Bool = false, prepareAudio: (@Sendable () async throws -> Void)? = nil, emit: @escaping RealtimeSession.Emit) -> RealtimeSession { RealtimeSession(backend: backend, startPaused: startPaused, waitForSpeech: waitForSpeech, prepareAudio: prepareAudio, emit: emit) }
     public func serve(_ socket: RealtimeSocket, owner: UUID, enabled: @escaping @Sendable (String) async -> Bool) async {
         let session = makeSession(startPaused: true) { try await socket.send($0) }
         var jobID: UUID?

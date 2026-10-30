@@ -62,7 +62,7 @@ struct ModelsPage: View {
             }.frame(minWidth: 340, idealWidth: 420, maxWidth: 480)
         }
         .onChange(of: filtered.map(\.id), initial: true) {
-            if store.launchConversationPending, filtered.contains(where: { $0.id == RealtimeConfiguration.modelID }) {
+            if (store.launchConversationPending || CommandLine.arguments.contains("--check-realtime-preview") || CommandLine.arguments.contains("--check-continuous-preview")), filtered.contains(where: { $0.id == RealtimeConfiguration.modelID }) {
                 selectedID = RealtimeConfiguration.modelID; return
             }
             guard !filtered.contains(where: { $0.id == selectedID }) else { return }

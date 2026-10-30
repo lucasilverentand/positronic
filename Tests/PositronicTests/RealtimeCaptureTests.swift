@@ -7,14 +7,13 @@ final class RealtimeCaptureTests: XCTestCase, @unchecked Sendable {
         let frames = try await Task.detached {
             let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48000, channels: 1, interleaved: false)!
             let (stream, continuation) = AsyncThrowingStream<Data, any Error>.makeStream(bufferingPolicy: .bufferingOldest(25))
-            let bridge = try RealtimeCaptureBridge(source: format, continuation: continuation)
+            let bridge = try RealtimeCaptureBridge(source: format, continuation: continuation, options: .init(echoCancellation: false, voiceFocus: false))
             for _ in 0..<20 {
                 let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 512)!
                 buffer.frameLength = 512
                 buffer.floatChannelData![0].initialize(repeating: 0.25, count: 512)
-                let borrowed = AVAudioPCMBuffer(pcmFormat: format, bufferListNoCopy: buffer.audioBufferList, deallocator: nil)!
-                borrowed.frameLength = 512
-                bridge.receive(borrowed)
+                bridge.receive(format: format, frames: 512, buffers: buffer.audioBufferList)
+                buffer.floatChannelData![0].update(repeating: .nan, count: 512)
             }
             bridge.finish()
             var values: [Data] = []

@@ -42,6 +42,9 @@ rm -rf "$APP_BUNDLE/Contents/Resources/Audio"
 cp -R "$ROOT_DIR/Resources/Audio" "$APP_BUNDLE/Contents/Resources/Audio"
 cp "$BUILD_DIR/$APP_NAME" "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 cp "$ROOT_DIR/LICENSE" "$ROOT_DIR/NOTICE" "$APP_BUNDLE/Contents/Resources/"
+mkdir -p "$APP_BUNDLE/Contents/Resources/ThirdParty"
+cp "$ROOT_DIR/ThirdParty/SpeexDSP/NOTICES" "$APP_BUNDLE/Contents/Resources/ThirdParty/SpeexDSP.txt"
+cp "$ROOT_DIR/ThirdParty/RNNoise/NOTICES" "$APP_BUNDLE/Contents/Resources/ThirdParty/RNNoise.txt"
 # Compile the native layered icon. macOS owns its Liquid Glass rim, mask and
 # adaptive appearances; the ICNS emitted alongside Assets.car is the fallback.
 xcrun actool "$ROOT_DIR/Assets/AppIcon.icon" \

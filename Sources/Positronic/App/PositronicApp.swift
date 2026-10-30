@@ -9,7 +9,7 @@ struct PositronicApp: App {
     var body: some Scene {
         WindowGroup("Positronic", id: "main") {
             ContentView(store: store).frame(minWidth: 940, minHeight: 650)
-                .task { await store.prepare() }
+                .task { await store.prepare(); await RealtimeAudioCheck.runIfRequested() }
         }
         .defaultSize(width: 1060, height: 780)
         MenuBarExtra("Positronic", systemImage: "cpu") {

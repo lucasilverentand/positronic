@@ -231,3 +231,66 @@ warms on silence before `session.ready`; this does not advance conversation outp
 After input commit, final playback acknowledgements have a bounded two-second
 drain before `session.done` and transport closure. A slow or missing playback
 acknowledgement fails safely rather than accumulating audio.
+
+
+## Independent local microphone cleanup
+
+The Mac preview defaults to **Echo cancellation** and **Voice focus**. Both can be
+changed while stopped. Echo cancellation uses bundled SpeexDSP; voice focus uses
+the embedded RNNoise neural denoising network. These CPU processors work offline
+without Apple Voice Isolation, Apple voice-processing IO, PCC, an account or an
+additional model download. Core Audio remains the Mac device transport.
+
+The echo reference comes from the app's actual rendered playback, including clears,
+rather than merely from generated text/audio that may never reach the speakers.
+Microphone and reference buffers are copied while the hardware owns them, then
+converted and processed on one bounded serial queue. Processing uses 10 ms mono
+48 kHz blocks, then resamples to the model's 16 kHz PCM. Model-facing frames stay
+80 ms. The resampling filter has a short initial priming delay. The device handoff reserves duration and bytes atomically: at most two seconds
+per direction, 4 MiB combined and 256 small packets. This accepts legitimate
+640 ms device bursts without confusing 10 ms device packets with 80 ms API
+frames. Input blocks larger than 16,384 frames, invalid layouts or nonfinite
+samples fail safely; API input/output retain their existing two-second bounds.
+A two-second speaker-reference history and bounded 120 ms near-audio alignment
+allow the canceller to match batched render taps by host timestamp. The 120 ms
+alignment is additional latency when echo cancellation is enabled.
+
+Voice focus reduces background noise; it does not identify a particular speaker or
+promise to remove another person's speech. Echo cancellation adapts to the room and
+speaker delay, so fixture attenuation is not a guarantee for every physical setup.
+Headphones remain useful for difficult acoustic environments.
+
+The microphone uses a persistent input queue with three fixed 10 ms buffers;
+playback does not open or reconfigure a microphone. A silent render source keeps\nthe selected speaker clock active through model loading and listening. Both remain open across
+speech, silence and interruption. Low-latency scheduling is active only during
+the session and ends on stop. Audio setup runs on its own actor after shared-scheduler admission and before model
+warmup. Capture is paused during loading: old microphone samples are discarded, not
+replayed when the model becomes ready. The preview shows listening only after a
+cleaned live frame is accepted. It waits for user speech before advancing the model.
+RAM, swap, thermal, CPU, disk and telemetry safeguards remain active. Playback waits
+for an IO clock; macOS 27 uses the throwing playback API so a missing IO cycle can
+fail the job rather than raise an uncaught playback exception.
+
+External API consumers still own their capture/playback path and echo reference;
+the host cannot infer the sound rendered on a different device from playback ACKs.
+These preview controls do not change external client PCM or API model access.
+Clients can reuse the optional `PositronicVoiceDSP` C library product with their own
+actual playback reference. Its caller serializes per-stream state; render/capture
+blocks are 480 float samples at 48 kHz, and capture returns up to 160 samples at
+16 kHz (shorter during initial resampler priming).
+
+Bounded explicit developer checks, after building the signed app:
+
+- `--check-realtime-audio`: three microphone/silent-playback/reset cycles; no model.
+- `--check-continuous-audio`: one uninterrupted 20-second input/playback/reset check.
+- `--check-continuous-preview`: one admitted model/microphone session held live for
+  30 seconds after the first cleaned frame is accepted.
+- `--check-realtime-preview`: three admitted real conversation model/microphone
+  starts and stops, with a 40-second startup bound per attempt. This loads the
+  installed model, asks for normal microphone permission and never downloads one.
+
+Only readiness/count metadata is logged by these checks. No microphone recordings
+or transcripts are saved. These flags are process-local and do not affect normal
+launches. Upstream revisions, source hashes and licenses are in
+`ThirdParty/README.md`; audio signal and background-thread ownership checks live in
+`LocalVoiceDSPTests` and `RealtimeCaptureTests`.

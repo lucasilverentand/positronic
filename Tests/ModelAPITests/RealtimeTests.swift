@@ -10,9 +10,11 @@ private actor RealtimeLog {
 }
 private actor DuplexFixture: RealtimeBackend {
     var starts = 0; var steps = 0; var stops = 0
+    var audioPreparations = 0; var preparationsAtBegin = 0
+    func prepareAudio() { audioPreparations += 1 }
     var delay: Duration = .zero
     func slow() { delay = .milliseconds(250) }
-    func begin(_ configuration: RealtimeConfiguration) async throws { starts += 1 }
+    func begin(_ configuration: RealtimeConfiguration) async throws { preparationsAtBegin = audioPreparations; starts += 1 }
     func step(_ pcm: Data) async throws -> [RealtimeEvent] {
         steps += 1; if delay != .zero { try await Task.sleep(for: delay) }
         return [.init("response.text.delta", delta: "hello"), .init("output_audio.delta", audio: Data(repeating: 0, count: 3528).base64EncodedString(), sampleRate: 22050)]
@@ -58,7 +60,7 @@ final class RealtimeTests: XCTestCase, @unchecked Sendable {
     func testAdmittedConversationStreamsAndDeletesContextAtCompletion() async throws {
         let queue = fixtureQueue(), backend = DuplexFixture(), log = RealtimeLog()
         let service = RealtimeService(jobs: queue, backend: backend, validate: { _ in })
-        let session = service.makeSession { await log.append($0) }
+        let session = service.makeSession(prepareAudio: { await backend.prepareAudio() }) { await log.append($0) }
         let owner = UUID(); let job = try await service.submit(.init(maxDurationSeconds: 10), owner: owner, session: session)
         try await until { await log.has("session.ready") }
         try await session.receive(.init("input_audio.append", audio: Data(repeating: 0, count: 2560).base64EncodedString()))
@@ -81,6 +83,7 @@ final class RealtimeTests: XCTestCase, @unchecked Sendable {
         _ = try await queue.wait(job.id)
         checkTrue(awaitValue(await log.has("session.done")))
         checkEqual(await queue.list(owner: UUID()).count, 0)
+        checkEqual(await backend.preparationsAtBegin, 1)
         checkGreater(await backend.stops, 0)
         let result = try await queue.result(job.id, owner: owner)
         checkFalse(String(decoding: try Data(contentsOf: XCTUnwrap(result.file)), as: UTF8.self).contains("hello"))
@@ -90,10 +93,11 @@ final class RealtimeTests: XCTestCase, @unchecked Sendable {
         let probe = RealtimeProbe(); probe.set(2)
         let queue = JobQueue(directory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString), interval: .milliseconds(5), probe: { probe.snapshot() })
         let backend = DuplexFixture(), service = RealtimeService(jobs: queue, backend: backend, validate: { _ in })
-        let owner = UUID(), session = service.makeSession { _ in }
+        let owner = UUID(), session = service.makeSession(prepareAudio: { await backend.prepareAudio() }) { _ in }
         let job = try await service.submit(.init(), owner: owner, session: session)
         try await until { try await queue.job(job.id).state == .waitingForResources }
         checkEqual(await backend.starts, 0)
+        checkEqual(await backend.audioPreparations, 0)
         await queue.revoke(owner)
         checkEqual(try await queue.job(job.id).state, .cancelled)
         do { _ = try await service.submit(.init(), owner: owner, session: session); XCTFail("Revoked key admitted") } catch ModelAPIError.unauthorized {}
