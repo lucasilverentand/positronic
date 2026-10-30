@@ -66,6 +66,7 @@ final class ModelTestStore {
                 var decisionLabels: [String:String] = [:]
                 let submitted: ModelJob
                 switch capability {
+                case .conversation: throw ModelAPIError.invalid("Use the live conversation preview.")
                 case .speech:
                     submitted = try await audio.submitSpeech(.init(model: modelID, input: text, language: language))
                 case .transcription:
@@ -114,6 +115,7 @@ final class ModelTestStore {
                 case .decision: result = .decision(try JSONDecoder().decode(DecisionResponse.self,from:output.data),decisionLabels)
                 case .embedding: result = .embedding(try JSONDecoder().decode(EmbeddingResponse.self,from:output.data))
                 case .transcription: result = .transcription(try JSONDecoder().decode(Transcript.self,from:output.data))
+                case .conversation: break
                 case .speech: result = .speech(submitted.id)
                 }
             } catch is CancellationError {

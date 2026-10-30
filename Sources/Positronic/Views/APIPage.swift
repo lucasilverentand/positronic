@@ -24,6 +24,7 @@ struct APIPage: View {
                 endpoint("POST", "/v1/embeddings", "Vectors for search and retrieval")
                 endpoint("POST", "/v1/audio/transcriptions", "Queue local transcription")
                 endpoint("POST", "/v1/audio/speech", "Queue local speech generation")
+                endpoint("WS", "/v1/realtime", "Live local speech, text and interruptions")
                 endpoint("GET", "/v1/jobs", "Status, results and cancellation")
             }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
         }

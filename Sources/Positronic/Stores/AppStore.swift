@@ -139,9 +139,10 @@ final class AppStore {
         do {
             guard let vault else { throw ModelAPIError.unavailable("API key storage is unavailable.") }
             try save()
-            let router = ModelRouter(keys: vault, engine: try makeEngine(), jobs: jobs, audio: audioService)
+            let realtime = RealtimeService(jobs: jobs, backend: LocalRealtimeBackend(runtime: audioRuntime))
+            let router = ModelRouter(keys: vault, engine: try makeEngine(), jobs: jobs, audio: audioService, realtime: realtime)
             self.router = router
-            let listener = try LoopbackServer(port: configuration.port, allowNetwork: configuration.allowNetwork, authorizeUpload: { await router.authorizeUpload($0) }) { await router.handle($0) }
+            let listener = try LoopbackServer(port: configuration.port, allowNetwork: configuration.allowNetwork, authorizeUpload: { await router.authorizeUpload($0) }, realtime: { await router.serveRealtime($0, socket: $1) }) { await router.handle($0) }
             server = listener
             apiStarting = true
             let id = UUID(); listenerID = id
@@ -208,14 +209,14 @@ final class AppStore {
         case .generation: configuration.generationModels.contains(model)
         case .decision: configuration.decisionModels.contains(model)
         case .embedding: configuration.embeddingModels.contains(model)
-        case .transcription, .speech: configuration.audioModels.contains(model)
+        case .transcription, .speech, .conversation: configuration.audioModels.contains(model)
         }
     }
     func setEnabled(_ model: String, capability: ModelCapability, enabled: Bool) async {
         guard !managingModels else { return }
         var next = configuration.removingModel(model)
         if enabled {
-            switch capability { case .generation: next.generationModels.append(model); case .decision: next.decisionModels.append(model); case .embedding: next.embeddingModels.append(model); case .transcription, .speech: next.audioModels.append(model) }
+            switch capability { case .generation: next.generationModels.append(model); case .decision: next.decisionModels.append(model); case .embedding: next.embeddingModels.append(model); case .transcription, .speech, .conversation: next.audioModels.append(model) }
         }
         do {
             try next.validate(); let engine = try makeEngine(configuration: next)

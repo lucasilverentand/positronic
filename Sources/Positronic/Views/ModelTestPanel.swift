@@ -16,6 +16,10 @@ struct ModelTestPanel: View {
         return store.loadedStatusKnown
     }
     var body: some View {
+        if model.capability == .conversation {
+            RealtimePreview(store: store, available: store.queueReady && !store.managingModels && AudioCatalog.realtimeReady && store.installedModels.contains { $0.id == model.id })
+                .id(model.id)
+        } else {
         GroupBox("Try this model") {
             VStack(alignment:.leading,spacing:12) {
                 if let capability=model.capability {
@@ -79,6 +83,7 @@ struct ModelTestPanel: View {
         }
         .onDisappear { sample.capture.cancel() }
         .task { while !Task.isCancelled { await sample.refresh();do { try await Task.sleep(for:.seconds(1)) } catch { return } } }
+    }
     }
     private func inputLabel(_ kind:ModelCapability) -> String {
         switch kind { case .generation:"Prompt";case .decision:"Sample to classify";case .embedding:"Texts to compare, one per line";default:"Text to speak" }

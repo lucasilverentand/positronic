@@ -37,3 +37,10 @@ uv pip compile requirements.in --python-version 3.12 --generate-hashes -o requir
 ```
 
 Review changed dependency licenses, hashes and model provenance before updating.
+
+## Full-duplex conversations
+
+The explicit audio update additionally installs hash-locked MLX-VLM 0.7.11.
+Nemotron VoiceChat 11B 4-bit uses its integrated LLM and Aria voice, English only,
+with 16 kHz input and 22,050 Hz output. The pinned checkpoint bundles its tokenizer;
+no second LLM or hosted service is used. See [realtime contracts](../../docs/Realtime.md).

@@ -67,7 +67,7 @@ final class PrivateCloudComputeTests: XCTestCase, @unchecked Sendable {
             case .generation: config.generationModels = ["apple-pcc"]
             case .decision: config.decisionModels = ["apple-pcc"]
             case .embedding: config.embeddingModels = ["apple-pcc"]
-            case .transcription, .speech: XCTFail("Unexpected audio capability")
+            case .transcription, .speech, .conversation: XCTFail("Unexpected audio capability")
             }
             XCTAssertThrowsError(try config.validate())
         }

@@ -10,7 +10,7 @@ public extension ServiceConfiguration {
             case .generation: copy.generationModels = Array(Set(copy.generationModels + [model]))
             case .decision: copy.decisionModels = Array(Set(copy.decisionModels + [model]))
             case .embedding: copy.embeddingModels = Array(Set(copy.embeddingModels + [model]))
-            case .speech, .transcription: copy.audioModels = Array(Set(copy.audioModels + [model]))
+            case .speech, .transcription, .conversation: copy.audioModels = Array(Set(copy.audioModels + [model]))
             }
         }
         // In particular, this never opts the operator into PCC.

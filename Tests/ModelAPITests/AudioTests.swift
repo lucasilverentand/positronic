@@ -65,7 +65,7 @@ extension AudioTests {
         try AudioCatalog.remove(AudioCatalog.ids[0],at:dir)
         XCTAssertTrue(FileManager.default.fileExists(atPath:repo.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath:AudioCatalog.receipt(AudioCatalog.ids[0],at:dir).path))
-        try AudioCatalog.remove(AudioCatalog.ids[1],at:dir)
+        for id in AudioCatalog.ids.dropFirst() { try AudioCatalog.remove(id,at:dir) }
         XCTAssertFalse(FileManager.default.fileExists(atPath:repo.path))
     }
 }

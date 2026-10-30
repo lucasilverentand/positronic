@@ -40,8 +40,10 @@ def main():
         subprocess.run([str(binary), "venv", "--python", "3.12.12", str(root / "venv")], env=env, check=True)
     if args.bootstrap_only: return
     lock = Path(__file__).with_name("requirements.lock")
+    # Never leave a success receipt describing an environment that failed mid-update.
+    (root / "runtime.json").unlink(missing_ok=True)
     subprocess.run([str(binary), "pip", "sync", "--python", str(root / "venv/bin/python"), "--require-hashes", "--only-binary", ":all:", str(lock)], env=env, check=True)
-    (root / "runtime.json").write_text(json.dumps({"python":"3.12.12", "mlx-audio":"0.6.3", "lock":hashlib.sha256(lock.read_bytes()).hexdigest()}))
+    (root / "runtime.json").write_text(json.dumps({"python":"3.12.12", "mlx-audio":"0.6.3", "mlx-vlm":"0.7.11", "lock":hashlib.sha256(lock.read_bytes()).hexdigest()}))
     os.chmod(root / "runtime.json", 0o600)
 
 if __name__ == "__main__": main()

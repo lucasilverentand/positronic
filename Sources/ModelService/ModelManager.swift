@@ -47,7 +47,7 @@ public struct ModelManager: Sendable {
         var body: [String: JSONValue] = ["model": .string(name), "keep_alive": .number(1800)]
         let path: String
         switch capability {
-        case .transcription, .speech: throw ModelAPIError.invalid("Use the local audio runtime for this model.")
+        case .transcription, .speech, .conversation: throw ModelAPIError.invalid("Use the local audio runtime for this model.")
         case .generation:
             path = "api/generate"; body["stream"] = .bool(false)
         case .embedding:

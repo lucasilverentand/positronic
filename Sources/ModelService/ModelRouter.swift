@@ -6,9 +6,19 @@ public actor ModelRouter {
     private var engine: any ModelEngine
     public let jobs: JobQueue
     private let audio: AudioService?
+    private let realtime: RealtimeService?
     private var active = 0
-    public init(keys: APIKeys, engine: any ModelEngine, jobs: JobQueue = JobQueue(), audio: AudioService? = nil) {
-        self.keys = keys; self.engine = engine; self.jobs = jobs; self.audio = audio
+    public init(keys: APIKeys, engine: any ModelEngine, jobs: JobQueue = JobQueue(), audio: AudioService? = nil, realtime: RealtimeService? = nil) {
+        self.keys = keys; self.engine = engine; self.jobs = jobs; self.audio = audio; self.realtime = realtime
+    }
+    public func serveRealtime(_ request: HTTPRequest, socket: RealtimeSocket) async {
+        guard request.headers["origin"] == nil, let owner = await keys.identity(for: request.bearer), let realtime else { socket.close(); return }
+        await realtime.serve(socket, owner: owner) { [self] model in
+            await self.enabledRealtime(model)
+        }
+    }
+    private func enabledRealtime(_ model: String) async -> Bool {
+        await engine.models().contains { $0.id == model && $0.capability == "conversation" && $0.available }
     }
     public func update(engine: any ModelEngine) { self.engine = engine }
     public func authorizeUpload(_ request: HTTPRequest) async -> Bool { guard request.headers["origin"] == nil else { return false }; return await keys.accepts(request.bearer) }

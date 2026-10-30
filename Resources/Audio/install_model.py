@@ -12,12 +12,12 @@ def main():
     p = argparse.ArgumentParser(); p.add_argument("--root", type=Path, required=True); p.add_argument("--model", required=True); args = p.parse_args()
     root = args.root.resolve(); model = args.model
     manifests = json.loads(Path(__file__).with_name("models.json").read_text())
-    if model not in ["whisper-large-v3-turbo", "chatterbox-multilingual-v3"]: raise ValueError("Unsupported audio model")
+    if model not in ["whisper-large-v3-turbo", "chatterbox-multilingual-v3", "nemotron-voicechat-11b-4bit"]: raise ValueError("Unsupported audio model")
     os.environ["HF_HOME"] = str(root / "huggingface")
     os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
     from huggingface_hub import HfApi, snapshot_download, hf_hub_download
     api = HfApi()
-    dependencies = [model] + (["tokenizer", "default-voice"] if model == "chatterbox-multilingual-v3" else ["whisper-processor"])
+    dependencies = [model] + (["tokenizer", "default-voice"] if model == "chatterbox-multilingual-v3" else (["whisper-processor"] if model == "whisper-large-v3-turbo" else []))
     patterns = {}
     expected = 0
     for name in dependencies:

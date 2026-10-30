@@ -59,9 +59,9 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<'PLIST'
 <key>CFBundleIconName</key><string>AppIcon</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>0.1.0</string>
-<key>CFBundleVersion</key><string>5</string>
+<key>CFBundleVersion</key><string>6</string>
 <key>LSMinimumSystemVersion</key><string>26.0</string>
-<key>NSMicrophoneUsageDescription</key><string>Record audio for transcription entirely on this Mac.</string>
+<key>NSMicrophoneUsageDescription</key><string>Use the microphone for live conversations and transcription entirely on this Mac.</string>
 <key>NSPrincipalClass</key><string>NSApplication</string>
 </dict></plist>
 PLIST

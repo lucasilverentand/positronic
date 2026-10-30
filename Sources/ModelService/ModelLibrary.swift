@@ -2,8 +2,8 @@ import Foundation
 import ModelAPI
 
 public enum ModelCapability: String, Codable, Sendable, CaseIterable {
-    case generation, decision, embedding, transcription, speech
-    public var title: String { switch self { case .generation: "Generation"; case .decision: "Decisions"; case .embedding: "Embeddings"; case .transcription: "Transcription"; case .speech: "Speech" } }
+    case generation, decision, embedding, transcription, speech, conversation
+    public var title: String { switch self { case .generation: "Generation"; case .decision: "Decisions"; case .embedding: "Embeddings"; case .transcription: "Transcription"; case .speech: "Speech"; case .conversation: "Conversation" } }
 }
 public struct ModelPreset: Identifiable, Sendable {
     public var id: String
@@ -100,9 +100,13 @@ public struct ModelLibrary: Sendable {
         return installed.sorted { $0.id < $1.id }
     }
     public func downloadRestriction(_ preset: ModelPreset) -> String? {
-        guard let modelStorage else { return "Choose a model storage directory before downloading." }
+        let storage: URL
+        if AudioCatalog.ids.contains(preset.id) { storage = AudioCatalog.directory }
+        else if let modelStorage { storage = modelStorage }
+        else { return "Choose a model storage directory before downloading." }
         let projected: Int64
         switch preset.id {
+        case RealtimeConfiguration.modelID: projected = 10 << 30
         case "muse-glimmer:30b", "clef:27b": projected = 24 << 30
         case "clef-flash:9b-mxfp8", "clef-flash:9b", "nimble:9b": projected = 14 << 30
         case "mistral:7b", "deepseek-r1:8b", "qwen2.5-coder:7b": projected = 8 << 30
@@ -112,7 +116,7 @@ public struct ModelLibrary: Sendable {
         default: projected = 2 << 30
         }
         let required = max(preset.minimumFreeDiskBytes ?? 0, ResourceMonitor.diskReserve + projected)
-        let available = try? capacity(modelStorage)
+        let available = try? capacity(storage)
         return Self.storageRestriction(required: required, available: available)
     }
     static func storageRestriction(required: Int64, available: Int64?) -> String? {

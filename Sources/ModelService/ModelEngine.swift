@@ -70,8 +70,8 @@ public struct LocalModelEngine: ModelEngine {
         }
         for id in configuration.audioModels {
             let preset = AudioCatalog.presets.first { $0.id == id }
-            let available = AudioCatalog.runtimeReady && AudioCatalog.installed().contains { $0.id == id }
-            result.append(.init(id: id, capability: preset?.capability.rawValue ?? "audio", available: available, detail: available ? "Local MLX Audio · English / Dutch" : "Download this local audio model first."))
+            let available = (id == RealtimeConfiguration.modelID ? AudioCatalog.realtimeReady : AudioCatalog.runtimeReady) && AudioCatalog.installed().contains { $0.id == id }
+            result.append(.init(id: id, capability: preset?.capability.rawValue ?? "audio", available: available, detail: available ? (id == RealtimeConfiguration.modelID ? "Local full-duplex · English · built-in LLM" : "Local MLX Audio · English / Dutch") : "Download this local audio model first."))
         }
         return result
     }

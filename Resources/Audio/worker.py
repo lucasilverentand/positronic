@@ -1,4 +1,5 @@
 """Private, offline-only JSON-lines worker. No user audio or text is logged."""
+import base64
 import contextlib
 import gc
 import json
@@ -24,6 +25,7 @@ import numpy as np
 import soundfile as sf
 loaded = None
 loaded_id = None
+duplex = None
 
 def safe_job_file(value):
     file = Path(value).resolve()
@@ -31,9 +33,9 @@ def safe_job_file(value):
     return file
 
 def load(model):
-    global loaded, loaded_id
+    global loaded, loaded_id, duplex
     if loaded_id == model: return
-    loaded = None; loaded_id = None; gc.collect(); mx.clear_cache()
+    loaded = None; loaded_id = None; duplex = None; gc.collect(); mx.clear_cache()
     receipt = json.loads((root / "models" / (model + ".json")).read_text())
     for entry in receipt["files"]:
         if Path(entry["path"]).stat().st_size != entry["size"]: raise RuntimeError("An installed model asset is missing or damaged")
@@ -42,8 +44,12 @@ def load(model):
         from mlx_audio.stt.utils import load_model
     elif model == "chatterbox-multilingual-v3":
         from mlx_audio.tts.utils import load_model
+    elif model == "nemotron-voicechat-11b-4bit":
+        from mlx_vlm import load as load_vlm
+        loaded = load_vlm(receipt["path"], trust_remote_code=False)
     else: raise ValueError("Unsupported audio model")
-    loaded = load_model(receipt["path"]); loaded_id = model
+    if model != "nemotron-voicechat-11b-4bit": loaded = load_model(receipt["path"])
+    loaded_id = model
     emit({"event":"loaded", "model":model,"memory":mx.get_active_memory()})
 
 for line in sys.stdin:
@@ -53,11 +59,37 @@ for line in sys.stdin:
         request = json.loads(line); operation = request["operation"]
         if operation == "shutdown": break
         if operation == "unload":
-            loaded = None; loaded_id = None; gc.collect(); mx.clear_cache(); emit({"ok":True}); continue
+            loaded = None; loaded_id = None; duplex = None; gc.collect(); mx.clear_cache(); emit({"ok":True}); continue
         model = request["model"]
-        if model not in ["whisper-large-v3-turbo", "chatterbox-multilingual-v3"]: raise ValueError("Unsupported model")
+        if model not in ["whisper-large-v3-turbo", "chatterbox-multilingual-v3", "nemotron-voicechat-11b-4bit"]: raise ValueError("Unsupported model")
         load(model); mx.reset_peak_memory()
         if operation == "load": emit({"ok":True,"memory":mx.get_active_memory()}); continue
+        if operation == "realtime_start":
+            if model != "nemotron-voicechat-11b-4bit": raise ValueError("Wrong realtime model")
+            instructions = request["instructions"]; seconds = request["seconds"]
+            if len(instructions.encode()) > 1024 or not 10 <= seconds <= 600: raise ValueError("Invalid realtime limits")
+            network, processor = loaded
+            duplex = network.create_session(processor).create_streaming_session(system_prompt=instructions, max_streaming_seconds=seconds)
+            if duplex.input_sample_rate != 16000 or duplex.output_sample_rate != 22050 or duplex.frame_samples != 1280: raise ValueError("Unsupported model audio format")
+            emit({"ok":True,"memory":mx.get_peak_memory()}); continue
+        if operation == "realtime_step":
+            if model != "nemotron-voicechat-11b-4bit" or duplex is None: raise ValueError("No realtime session")
+            pcm = base64.b64decode(request["audio"],validate=True)
+            if len(pcm) != 2560: raise ValueError("Invalid PCM frame")
+            samples = np.frombuffer(pcm,dtype="<i2").astype(np.float32)/32768.0
+            events = []
+            for event in duplex.push_audio(samples,sample_rate=16000):
+                if event.kind == "audio":
+                    audio = np.asarray(event.samples).reshape(-1)
+                    if len(audio) != 1764 or not np.isfinite(audio).all(): raise ValueError("Invalid generated frame")
+                    pcm_out = (np.clip(audio,-1,1)*32767).astype("<i2").tobytes()
+                    events.append({"type":"output_audio.delta","audio":base64.b64encode(pcm_out).decode(),"sampleRate":22050})
+                elif event.kind in ["assistant_text_delta","user_transcript_delta"]:
+                    delta = event.delta or ""
+                    if len(delta.encode()) > 4096: raise ValueError("Oversized text delta")
+                    events.append({"type":"response.text.delta" if event.kind == "assistant_text_delta" else "input_audio.transcript.delta","delta":delta})
+                # Function-channel output is untrusted model data, never executed.
+            emit({"ok":True,"events":events,"memory":mx.get_peak_memory()}); continue
         language = request.get("language", "en")
         if language not in ["en", "nl"]: raise ValueError("Unsupported language")
         output = safe_job_file(request["output"])

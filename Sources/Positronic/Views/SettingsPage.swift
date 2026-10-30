@@ -27,6 +27,13 @@ struct SettingsPage: View {
                 Text("Runtime connection changes require stopping the API. Model downloads and enable switches remain available while the API runs.").font(.caption).foregroundStyle(.secondary)
             }.padding(12).frame(maxWidth: .infinity, alignment: .leading).disabled(store.managingModels)
         }
+        GroupBox("Local audio runtime") {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(AudioCatalog.realtimeReady ? "Transcription, speech and live conversations are ready." : AudioCatalog.runtimeReady ? "Batch audio is ready. Prepare the update to add live conversations." : "Prepare the managed local audio runtime first.").font(.callout)
+                Button(AudioCatalog.runtimeReady ? "Prepare audio update" : "Prepare audio runtime") { Task { await store.prepareAudioRuntime() } }.disabled(!store.canManageModels)
+                Text("This explicit download installs the pinned audio dependencies. Models are downloaded separately in Discover; inference stays offline.").font(.caption).foregroundStyle(.secondary)
+            }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
+        }
         GroupBox("Network access") {
             VStack(alignment: .leading, spacing: 12) {
                 HStack { Text("API port"); TextField("Port", value: $store.configuration.port, format: .number.grouping(.never)).frame(width: 100) }

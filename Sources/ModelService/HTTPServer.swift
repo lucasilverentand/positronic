@@ -41,21 +41,23 @@ public enum HTTPParser {
         return HTTPRequest(method: String(first[0]), target: String(first[1]), headers: headers, body: Data(data[split.upperBound...]))
     }
 }
+public typealias RealtimeHandler = @Sendable (HTTPRequest, RealtimeSocket) async -> Void
 public final class LoopbackServer: @unchecked Sendable {
     private let listener: NWListener
     private let peers = PeerRegistry()
+    private let realtime: RealtimeHandler?
     private let handler: @Sendable (HTTPRequest) async -> HTTPResponse
     private let authorizeUpload: @Sendable (HTTPRequest) async -> Bool
     private let uploadDirectory: URL
     private let diskBudget: UploadDiskBudget
     public var port: UInt16? { listener.port?.rawValue }
-    public init(port: UInt16 = 18767, allowNetwork: Bool = false, uploadDirectory: URL = AudioCatalog.jobsDirectory, checkDisk: @escaping @Sendable (URL, Int64) throws -> Void = { try ResourceMonitor.requireDisk(at: $0, additional: $1) }, authorizeUpload: @escaping @Sendable (HTTPRequest) async -> Bool = { _ in false }, handler: @escaping @Sendable (HTTPRequest) async -> HTTPResponse) throws {
+    public init(port: UInt16 = 18767, allowNetwork: Bool = false, uploadDirectory: URL = AudioCatalog.jobsDirectory, checkDisk: @escaping @Sendable (URL, Int64) throws -> Void = { try ResourceMonitor.requireDisk(at: $0, additional: $1) }, authorizeUpload: @escaping @Sendable (HTTPRequest) async -> Bool = { _ in false }, realtime: RealtimeHandler? = nil, handler: @escaping @Sendable (HTTPRequest) async -> HTTPResponse) throws {
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: allowNetwork ? "0.0.0.0" : "127.0.0.1", port: NWEndpoint.Port(rawValue: port)!)
-        self.listener = try NWListener(using: parameters); self.handler = handler; self.authorizeUpload = authorizeUpload; self.uploadDirectory = uploadDirectory; self.diskBudget = UploadDiskBudget(directory: uploadDirectory, check: checkDisk)
+        self.realtime = realtime; self.listener = try NWListener(using: parameters); self.handler = handler; self.authorizeUpload = authorizeUpload; self.uploadDirectory = uploadDirectory; self.diskBudget = UploadDiskBudget(directory: uploadDirectory, check: checkDisk)
     }
     public func run(onReady: @escaping @Sendable () -> Void = {}) async throws {
-        let listener = listener, handler = handler, peers = peers, authorizeUpload = authorizeUpload, uploadDirectory = uploadDirectory, diskBudget = diskBudget
+        let listener = listener, handler = handler, peers = peers, authorizeUpload = authorizeUpload, uploadDirectory = uploadDirectory, diskBudget = diskBudget, realtime = realtime
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
                 let completion = ListenerCompletion(continuation)
@@ -64,7 +66,7 @@ public final class LoopbackServer: @unchecked Sendable {
                 }
                 listener.newConnectionHandler = { connection in
                     guard peers.insert(connection) else { connection.cancel(); return }
-                    let peer = HTTPPeer(connection: connection, handler: handler, authorizeUpload: authorizeUpload, uploadDirectory: uploadDirectory, diskBudget: diskBudget)
+                    let peer = HTTPPeer(connection: connection, handler: handler, authorizeUpload: authorizeUpload, uploadDirectory: uploadDirectory, diskBudget: diskBudget, realtime: realtime)
                     connection.stateUpdateHandler = { state in
                         if case .cancelled = state { peers.remove(connection); Task { await peer.close() } }
                         if case .failed = state { peers.remove(connection); Task { await peer.close() } }
@@ -103,6 +105,7 @@ private final class ListenerCompletion: @unchecked Sendable {
 }
 private actor HTTPPeer {
     private let connection: NWConnection
+    private let realtime: RealtimeHandler?
     private let handler: @Sendable (HTTPRequest) async -> HTTPResponse
     private let authorizeUpload: @Sendable (HTTPRequest) async -> Bool
     private let uploadDirectory: URL
@@ -116,7 +119,7 @@ private actor HTTPPeer {
     private var responseFile: FileHandle?
     private var buffer = Data(); private var finished = false; private var work: Task<Void, Never>?
     private var deadline: Task<Void, Never>?
-    init(connection: NWConnection, handler: @escaping @Sendable (HTTPRequest) async -> HTTPResponse, authorizeUpload: @escaping @Sendable (HTTPRequest) async -> Bool, uploadDirectory: URL, diskBudget: UploadDiskBudget) { self.diskBudget = diskBudget; self.uploadDirectory = uploadDirectory; self.connection = connection; self.handler = handler; self.authorizeUpload = authorizeUpload }
+    init(connection: NWConnection, handler: @escaping @Sendable (HTTPRequest) async -> HTTPResponse, authorizeUpload: @escaping @Sendable (HTTPRequest) async -> Bool, uploadDirectory: URL, diskBudget: UploadDiskBudget, realtime: RealtimeHandler?) { self.realtime = realtime; self.diskBudget = diskBudget; self.uploadDirectory = uploadDirectory; self.connection = connection; self.handler = handler; self.authorizeUpload = authorizeUpload }
     func start() {
         receive()
         armDeadline(seconds: 130)
@@ -154,7 +157,9 @@ private actor HTTPPeer {
                 try appendUpload(Data(buffer.dropFirst(offset))); buffer = Data()
                 if uploaded == uploadLength { finishUpload() }
                 else if complete || failed { close() } else { receive() }
-            } else if let request = try HTTPParser.parse(buffer) { dispatch(request) }
+            } else if let request = try HTTPParser.parse(buffer) {
+                if request.path == "/v1/realtime" { dispatchRealtime(request) } else { dispatch(request) }
+            }
             else if complete || failed { close() } else { receive() }
         } catch let error as ModelAPIError {
             let code: Int; switch error { case .limit: code = 413; case .unavailable: code = 503; default: code = 400 }
@@ -169,6 +174,20 @@ private actor HTTPPeer {
         try? uploadHandle?.close(); uploadHandle = nil
         guard var request = uploadRequest else { close(); return }
         request.upload = upload; uploadRequest = nil; dispatch(request)
+    }
+    private func dispatchRealtime(_ request: HTTPRequest) {
+        buffer = Data(); armDeadline(seconds: 1250)
+        work = Task {
+            guard await authorizeUpload(request) else { send(.error("API key required.", status: 401)); return }
+            guard let realtime else { send(.error("Realtime is unavailable.", status: 503)); return }
+            do {
+                let key = try WebSocketFrames.acceptKey(request)
+                let socket = RealtimeSocket(connection: connection)
+                try await socket.upgrade(accept: key)
+                await realtime(request, socket)
+                close()
+            } catch { send(.error("Invalid realtime upgrade.", status: 400)) }
+        }
     }
     private func dispatch(_ request: HTTPRequest) {
         buffer = Data(); armDeadline(seconds: 900)

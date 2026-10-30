@@ -215,9 +215,11 @@ use a trusted encrypted private network or an operator-managed HTTPS proxy for
 remote access. Networking, tunnels and public hosting are not managed by this app.
 Browser-origin requests are rejected, and no permissive CORS policy is installed.
 
-The initial API is nonstreaming, text-only and stateless. It does not execute
-tools or maintain chat history. It has no silent model fallback, general cloud provider
-credential store or automatic model downloads.
+Text endpoints remain request/response. Batch audio and persistent local speech
+sessions are available separately; see [Realtime speech](docs/Realtime.md) for the
+authenticated streaming API and live model preview. Conversation context is
+ephemeral and bounded. Positronic does not execute tools, silently fall back to
+other models, store general cloud-provider credentials or download models automatically.
 Unknown token usage is returned as null rather than estimated.
 
 ## Sources and license

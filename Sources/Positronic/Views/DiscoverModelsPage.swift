@@ -17,12 +17,12 @@ struct DiscoverModelsPage: View {
                     .frame(maxWidth: 460, alignment: .leading)
                 if !store.modelLibraryMessage.isEmpty { RuntimeSetupCard(store: store) }
                 if presets.isEmpty { ContentUnavailableView.search(text: search).frame(maxWidth: .infinity).padding(.top, 50) }
-                if !AudioCatalog.runtimeReady {
+                if !AudioCatalog.realtimeReady {
                     GroupBox {
                         HStack {
                             VStack(alignment: .leading, spacing: 5) {
                                 Text("Local audio runtime").font(.headline)
-                                Text("Prepare MLX Audio before downloading transcription or speech models.").font(.callout).foregroundStyle(.secondary)
+                                Text("Prepare or update the audio runtime before downloading live conversation models. Existing batch audio remains available.").font(.callout).foregroundStyle(.secondary)
                             }
                             Spacer()
                             Button("Prepare audio") { Task { await store.prepareAudioRuntime() } }.disabled(store.busy || store.managingModels)

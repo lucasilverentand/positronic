@@ -178,3 +178,9 @@ Input is 1–5,000 characters, language is English `en` or Dutch `nl`, voice is
 The model must already be explicitly installed and enabled. No voice cloning,
 reference audio, music, effects or hosted fallback is accepted. Both audio
 operations run offline through MLX-Audio, independently of Ollama and PCC.
+
+## Realtime speech
+
+Authenticated WebSocket `/v1/realtime` hosts local full-duplex conversation sessions.
+See [Realtime protocol, Swift client and resource limits](Realtime.md). This is
+Positronic protocol v1, not a claim of full OpenAI Realtime API compatibility.

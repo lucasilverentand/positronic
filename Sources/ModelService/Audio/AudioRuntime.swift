@@ -23,7 +23,8 @@ public actor AudioRuntime {
     }
     public func download(_ model: String) async throws {
         guard AudioCatalog.runtimeReady, AudioCatalog.ids.contains(model) else { throw ModelAPIError.unavailable("Prepare the audio runtime first.") }
-        try ResourceMonitor.requireDisk(at: AudioCatalog.directory, additional: 4 * 1024 * 1024 * 1024)
+        if model == RealtimeConfiguration.modelID, !AudioCatalog.realtimeReady { throw ModelAPIError.unavailable("Prepare the updated audio runtime explicitly in Settings first.") }
+        try ResourceMonitor.requireDisk(at: AudioCatalog.directory, additional: (model == RealtimeConfiguration.modelID ? 10 : 4) * 1024 * 1024 * 1024)
         try await runTool(executable: AudioCatalog.directory.appendingPathComponent("venv/bin/python"), arguments: [AudioCatalog.resources.appendingPathComponent("install_model.py").path, "--root", AudioCatalog.directory.path, "--model", model])
     }
     private func runTool(executable: URL, arguments: [String]) async throws {
@@ -76,9 +77,21 @@ public actor AudioRuntime {
         guard (try output.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0) <= 64 * 1024 * 1024 else { throw ModelAPIError.limit("Speech output exceeds 64 MiB.") }
         return .init(file: output, type: "audio/wav")
     }
+    public func beginRealtime(_ configuration: RealtimeConfiguration) async throws {
+        try configuration.validate()
+        guard AudioCatalog.realtimeReady else { throw ModelAPIError.unavailable("Prepare the updated audio runtime explicitly in Settings first.") }
+        _ = try await rpc(["operation": .string("realtime_start"), "model": .string(configuration.model), "instructions": .string(configuration.instructions), "seconds": .number(Double(configuration.maxDurationSeconds))], progress: { _ in })
+    }
+    public func stepRealtime(_ pcm: Data) async throws -> [RealtimeEvent] {
+        guard pcm.count == 2560 else { throw ModelAPIError.invalid("Invalid realtime PCM frame.") }
+        let result = try await rpc(["operation": .string("realtime_step"), "model": .string(RealtimeConfiguration.modelID), "audio": .string(pcm.base64EncodedString())], progress: { _ in })
+        guard let value = result.object?["events"] else { throw ModelAPIError.invalid("Missing realtime events.") }
+        return try JSONDecoder().decode([RealtimeEvent].self, from: JSONEncoder().encode(value))
+    }
     private func rpc(_ body: [String: JSONValue], progress: @escaping @Sendable (JSONValue) async -> Void) async throws -> JSONValue {
         idleTask?.cancel(); idleTask = nil
         guard let model = body["model"]?.string, AudioCatalog.installed().contains(where: { $0.id == model }) else { throw ModelAPIError.unavailable("Download this audio model explicitly before loading it.") }
+        if model == RealtimeConfiguration.modelID, !AudioCatalog.realtimeReady { throw ModelAPIError.unavailable("Prepare the updated audio runtime explicitly first.") }
         try start()
         guard let input, let output else { throw ModelAPIError.unavailable("The audio worker is unavailable.") }
         let owned = process
