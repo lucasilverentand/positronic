@@ -17,17 +17,17 @@ final class LiveAudioTests: XCTestCase, @unchecked Sendable {
         let audio = AudioService(runtime: runtime, queue: queue, enabled: AudioCatalog.ids)
         do {
             for (language, expected) in [("en","robot"),("nl","robot")] {
+                let speech = try await audio.submitSpeech(.init(input: language == "en" ? "The little robot is ready to help." : "De kleine robot staat klaar om te helpen.",language: language))
+                let output = try await queue.wait(speech.id)
+                XCTAssertEqual(output.type,"audio/wav")
+                let source = try XCTUnwrap(output.file); try AudioIO.validate(source)
                 let input = AudioCatalog.jobsDirectory.appendingPathComponent(UUID().uuidString + ".wav")
-                try FileManager.default.copyItem(at: URL(fileURLWithPath: "/private/tmp/positronic-audio-fixtures/\(language).wav"), to: input)
+                try FileManager.default.copyItem(at: source, to: input)
                 let job = try await audio.submitTranscription(file: input, language: language)
                 let data = try await queue.wait(job.id).data
                 let transcript = try JSONDecoder().decode(Transcript.self, from: data)
                 XCTAssertTrue(transcript.text.lowercased().contains(expected)); XCTAssertFalse(transcript.segments.isEmpty)
                 XCTAssertFalse(FileManager.default.fileExists(atPath: input.path))
-                let speech = try await audio.submitSpeech(.init(input: language == "en" ? "The robot is ready." : "De robot staat klaar.",language: language))
-                let output = try await queue.wait(speech.id)
-                XCTAssertEqual(output.type,"audio/wav")
-                try AudioIO.validate(XCTUnwrap(output.file))
             }
         } catch { await queue.shutdown(); throw error }
         await queue.shutdown()

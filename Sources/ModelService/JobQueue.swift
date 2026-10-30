@@ -205,10 +205,10 @@ public actor JobQueue {
                 try await Task.sleep(for: .seconds(1))
                 let snapshot = try probe(); let now = Date()
                 samples.append((now, snapshot.swap)); samples.removeAll { now.timeIntervalSince($0.0) > 30 }
-                let critical = snapshot.pressure >= 4 || snapshot.thermal >= 3 || snapshot.swap - (samples.first?.1 ?? baseline.swap) > 256 * 1024 * 1024 || snapshot.available < max(8 * 1024 * 1024 * 1024, snapshot.physical / 5)
+                let critical = snapshot.pressure != 1 || snapshot.thermal >= 3 || snapshot.swapActivityBytes >= ResourceMonitor.swapActivityLimit || snapshot.swap - (samples.first?.1 ?? baseline.swap) >= ResourceMonitor.swapActivityLimit || snapshot.available < ResourceMonitor.headroom(physical: snapshot.physical)
                 let memory = critical ? 0 : try await footprint?() ?? 0
                 if critical || memory > (budget ?? Int64.max) {
-                    finish(id, state: .failed, message: "Stopped to protect system resources. Retry after memory pressure clears.")
+                    finish(id, state: .failed, message: "Stopped to keep the Mac responsive and avoid SSD swapping. Retry when memory pressure and swap activity settle.")
                     running?.cancel(); await releaseResources(); return
                 }
             } catch is CancellationError { return }

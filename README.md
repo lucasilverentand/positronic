@@ -79,15 +79,27 @@ effects, diarization or live transcription. Export speech before results expire.
 Audio, Playground, explicit model loads and API inference share one FIFO scheduler.
 At most 32 pending jobs are admitted. Resource checks and reservations are atomic
 with scheduling, including on-demand loads. Jobs wait for normal memory pressure,
-a model budget plus the greater of 8 GiB or 20% of physical RAM, CPU capacity and
+a model budget plus the greater of 2 GiB or 10% of physical RAM, CPU capacity and
 safe thermal conditions. Unknown budgets wait instead of guessing. Owned idle
 models can unload to make room; other applications are never interrupted.
 Downloads, uploads and output allocation must preserve 25 GiB of free disk.
 
+Available RAM includes reusable free pages, file-backed cache and volatile
+purgeable pages. Speculative read-ahead pages are counted once. Inactive anonymous
+app memory and compressed data are not counted as available: making room there
+can require more compression or SSD swapping. Jobs shows this live breakdown,
+system headroom, recent swap activity and the amount left for additional model
+memory. Cache reclamation remains under macOS control; the app never runs purge
+or forces other apps out. This is an estimate, not an OS memory reservation.
+See [Apple’s VM counters](https://github.com/apple-oss-distributions/xnu/blob/main/osfmk/mach/vm_statistics.h)
+and [memory-pressure accounting](https://github.com/apple-oss-distributions/xnu/blob/main/doc/vm/memorystatus_notify.md).
+
 Waiting jobs recheck every two seconds and fail with a retryable explanation after
-ten minutes. Running jobs are monitored each second; critical pressure, thermal
-emergency, reservation overrun, lost telemetry or swap growth above 256 MiB in
-30 seconds stops work. These checks reduce risk but cannot prevent another app
+ten minutes. Running jobs are monitored each second; elevated memory pressure, thermal
+emergency, reservation overrun, lost telemetry or 32 MiB of swap activity in
+30 seconds stops work. Both swap-out writes and net swap growth are monitored,
+so SSD churn is detected even when the swap-file size stays steady. Existing idle
+swap alone does not block a job. These checks reduce risk but cannot prevent another app
 from suddenly exhausting resources. Ollama budgets include weights, runtime and
 an allowance for its bounded 8,192-token context; audio budgets include decoding
 and worker overhead. Existing externally managed Ollama services need their own

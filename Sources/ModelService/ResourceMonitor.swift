@@ -10,8 +10,10 @@ public struct ResourceSnapshot: Sendable {
     public var pressure: Int32
     public var thermal: Int
     public var cpu: Double
-    public init(physical: Int64, available: Int64, disk: Int64, swap: Int64 = 0, pressure: Int32 = 1, thermal: Int = 0, cpu: Double = 0) {
-        self.physical = physical; self.available = available; self.disk = disk; self.swap = swap; self.pressure = pressure; self.thermal = thermal; self.cpu = cpu
+    public var memory: MemoryBreakdown?
+    public var swapActivityBytes: Int64
+    public init(physical: Int64, available: Int64, disk: Int64, swap: Int64 = 0, pressure: Int32 = 1, thermal: Int = 0, cpu: Double = 0, memory: MemoryBreakdown? = nil, swapActivityBytes: Int64 = 0) {
+        self.physical = physical; self.available = available; self.disk = disk; self.swap = swap; self.pressure = pressure; self.thermal = thermal; self.cpu = cpu; self.memory = memory; self.swapActivityBytes = swapActivityBytes
     }
 }
 public enum ResourceMonitor {
@@ -37,22 +39,45 @@ public enum ResourceMonitor {
         // Cumulative ticks are sampled by the scheduler to obtain interval utilization.
         let ticks = cpu.cpu_ticks
         let active = Double(ticks.0) + Double(ticks.1) + Double(ticks.3), total = active + Double(ticks.2)
-        return .init(physical: Int64(ProcessInfo.processInfo.physicalMemory),
-                     available: Int64(UInt64(vm.free_count) + UInt64(vm.inactive_count)) * Int64(getpagesize()),
+        let physical = Int64(ProcessInfo.processInfo.physicalMemory)
+        let memory = try memoryEstimate(vm, physical: physical, pageSize: Int64(getpagesize()))
+        return .init(physical: physical,
+                     available: memory.availableBytes,
                      disk: Int64(disk), swap: Int64(usage.xsu_used), pressure: pressure,
-                     thermal: ProcessInfo.processInfo.thermalState.rawValue, cpu: CPUHistory.shared.sample(active: active, total: total))
+                     thermal: ProcessInfo.processInfo.thermalState.rawValue, cpu: CPUHistory.shared.sample(active: active, total: total), memory: memory, swapActivityBytes: SwapHistory.shared.sample(used: Int64(usage.xsu_used), writtenPages: vm.swapouts, pageSize: Int64(getpagesize())))
     }
+    /// Uses public HOST_VM_INFO64 counters, not the iOS-only per-process memory limit.
+    public static func memoryEstimate(_ vm: vm_statistics64, physical: Int64, pageSize: Int64) throws -> MemoryBreakdown {
+        guard physical > 0, pageSize > 0, pageSize <= physical else { throw ModelAPIError.unavailable("Invalid memory telemetry.") }
+        func bytes(_ pages: UInt32) -> Int64 { min(Int64(pages), physical / pageSize) * pageSize }
+        let wired = bytes(vm.wire_count), compressed = bytes(vm.compressor_page_count)
+        // Treat these categories as unavailable; never count compressed or app memory as a cache.
+        let capacity = max(0, physical - wired - compressed)
+        let free = min(bytes(vm.free_count), capacity)
+        // XNU's public free_count already contains speculative pages. They are also
+        // file-backed, so subtract them from external_page_count to count them once.
+        let cachePages = vm.external_page_count > vm.speculative_count ? vm.external_page_count - vm.speculative_count : 0
+        let cached = min(bytes(cachePages), capacity - free)
+        // Volatile purgeable pages are anonymous, separate from the file cache.
+        let purgeable = min(bytes(vm.purgeable_count), capacity - free - cached)
+        return .init(freeBytes: free, fileCacheBytes: cached, purgeableBytes: purgeable, wiredBytes: wired, compressedBytes: compressed)
+    }
+    // Preserve responsiveness without reserving a quarter of a 36 GiB Mac.
+    public static func headroom(physical: Int64) -> Int64 { max(2 * 1024 * 1024 * 1024, physical / 10) }
+    public static let swapActivityLimit: Int64 = 32 * 1024 * 1024
     public static func restriction(_ snapshot: ResourceSnapshot, budget: Int64?, diskBytes: Int64 = 0) -> ResourceStatus {
-        let reserve = max(8 * 1024 * 1024 * 1024, snapshot.physical / 5)
+        let reserve = headroom(physical: snapshot.physical)
         let required = (budget ?? 0) + reserve
         var reason: String?
         if budget == nil { reason = "No conservative memory budget is available for this model." }
         else if snapshot.pressure != 1 { reason = "Waiting for normal system memory pressure." }
+        else if snapshot.swapActivityBytes >= swapActivityLimit { reason = "Waiting for SSD swap activity to settle." }
         else if snapshot.thermal >= 2 { reason = "Waiting for the Mac to cool down." }
         else if snapshot.cpu > 0.90 { reason = "Waiting for CPU capacity." }
-        else if snapshot.available < required { reason = "Waiting for enough RAM, including system headroom." }
+        else if snapshot.available < required { let shortfall = ByteCountFormatter.string(fromByteCount: required - snapshot.available, countStyle: .memory)
+            reason = "Waiting for \(shortfall) more estimated RAM after counting reclaimable cache and preserving system headroom." }
         else if snapshot.disk < diskReserve + diskBytes { reason = "Waiting for disk space; 25 GiB must remain available." }
-        return .init(availableMemoryBytes: snapshot.available, requiredMemoryBytes: required, availableDiskBytes: snapshot.disk, reason: reason)
+        return .init(availableMemoryBytes: snapshot.available, requiredMemoryBytes: required, availableDiskBytes: snapshot.disk, reason: reason, memory: snapshot.memory, systemHeadroomBytes: reserve, swapActivityBytes: snapshot.swapActivityBytes)
     }
     public static func residentBytes(of pid: Int32) throws -> Int64 {
         var info = proc_taskinfo()
@@ -83,5 +108,25 @@ private final class CPUHistory: @unchecked Sendable {
             lastUsage = Date().timeIntervalSince(saturatedSince!) >= 10 ? usage : 0
         } else { saturatedSince = nil; lastUsage = usage }
         return lastUsage
+    }
+}
+
+/// Uses swap-out counters as well as net swap growth: a stable swap-file size can
+/// still hide SSD churn. Existing idle swap alone does not block inference.
+final class SwapHistory: @unchecked Sendable {
+    static let shared = SwapHistory()
+    private let lock = NSLock()
+    private var samples: [(time: TimeInterval, used: Int64, pages: UInt64)] = []
+    func sample(used: Int64, writtenPages: UInt64, pageSize: Int64, now: TimeInterval = Date.timeIntervalSinceReferenceDate) -> Int64 {
+        lock.lock(); defer { lock.unlock() }
+        if let last = samples.last, writtenPages < last.pages || now < last.time { samples = [] }
+        samples.append((now, used, writtenPages))
+        // Keep one sample immediately preceding the window boundary.
+        while samples.count > 1, samples[1].time <= now - 30 { samples.removeFirst() }
+        if samples.count > 512 { samples.removeSubrange(1..<(samples.count - 511)) }
+        guard let first = samples.first, pageSize > 0 else { return 0 }
+        let pageDelta = writtenPages - first.pages
+        let writes = pageDelta > UInt64(Int64.max / pageSize) ? Int64.max : Int64(pageDelta) * pageSize
+        return max(writes, max(0, used - first.used))
     }
 }

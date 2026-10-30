@@ -125,7 +125,15 @@ can inspect and cancel every job through Jobs.
 
 States are `queued`, `waitingForResources`, `loading`, `running`, `succeeded`,
 `failed`, `cancelled`. Dates are ISO 8601. `resources` reports required and available
-RAM, available disk and a waiting reason. Progress is optional and approximate.
+RAM, available disk and a waiting reason. Optional `memory` breaks the estimate
+into `freeBytes`, `fileCacheBytes`, `purgeableBytes`, `wiredBytes` and
+`compressedBytes`; available RAM includes the first three categories.
+`systemHeadroomBytes` is the responsive-system reserve (greater of 2 GiB or 10% of
+physical RAM). `swapActivityBytes` is recent swap-out traffic/net growth over a
+30-second observation window; existing idle swap is not a rejection reason.
+Admission requires normal memory pressure and low swap activity. Running work
+stops at elevated pressure or 32 MiB of observed swap activity. Older clients may
+ignore the additional optional fields. Progress is optional and approximate.
 One local inference runs at a time. FIFO waits do not skip the first job.
 
 The queue holds at most 32 pending jobs; overflow returns 429. Resource waits

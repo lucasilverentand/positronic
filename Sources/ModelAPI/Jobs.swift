@@ -3,13 +3,31 @@ import Foundation
 public enum JobState: String, Codable, Sendable { case queued, waitingForResources, loading, running, succeeded, failed, cancelled
     public var terminal: Bool { [.succeeded, .failed, .cancelled].contains(self) }
 }
+/// Estimated physical memory categories; cached pages are included in availableBytes.
+public struct MemoryBreakdown: Codable, Sendable {
+    public var freeBytes: Int64
+    public var fileCacheBytes: Int64
+    public var purgeableBytes: Int64
+    public var wiredBytes: Int64
+    public var compressedBytes: Int64
+    public var reclaimableBytes: Int64 { fileCacheBytes + purgeableBytes }
+    public var availableBytes: Int64 { freeBytes + reclaimableBytes }
+    public init(freeBytes: Int64, fileCacheBytes: Int64, purgeableBytes: Int64, wiredBytes: Int64, compressedBytes: Int64) {
+        self.freeBytes = freeBytes; self.fileCacheBytes = fileCacheBytes; self.purgeableBytes = purgeableBytes
+        self.wiredBytes = wiredBytes; self.compressedBytes = compressedBytes
+    }
+}
 public struct ResourceStatus: Codable, Sendable {
     public var availableMemoryBytes: Int64
     public var requiredMemoryBytes: Int64
     public var availableDiskBytes: Int64
     public var reason: String?
-    public init(availableMemoryBytes: Int64, requiredMemoryBytes: Int64, availableDiskBytes: Int64, reason: String? = nil) {
+    public var memory: MemoryBreakdown?
+    public var systemHeadroomBytes: Int64?
+    public var swapActivityBytes: Int64?
+    public init(availableMemoryBytes: Int64, requiredMemoryBytes: Int64, availableDiskBytes: Int64, reason: String? = nil, memory: MemoryBreakdown? = nil, systemHeadroomBytes: Int64? = nil, swapActivityBytes: Int64? = nil) {
         self.availableMemoryBytes = availableMemoryBytes; self.requiredMemoryBytes = requiredMemoryBytes; self.availableDiskBytes = availableDiskBytes; self.reason = reason
+        self.memory = memory; self.systemHeadroomBytes = systemHeadroomBytes; self.swapActivityBytes = swapActivityBytes
     }
 }
 public struct ModelJob: Codable, Sendable, Identifiable {

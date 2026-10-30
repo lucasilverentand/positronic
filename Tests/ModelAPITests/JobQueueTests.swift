@@ -182,3 +182,26 @@ extension JobQueueTests {
         let order=await log.order;XCTAssertEqual(order,[1,2]);await queue.shutdown()
     }
 }
+extension JobQueueTests {
+    func testElevatedPressureAndSwapWritesStopBeforeCriticalPressure() async throws {
+        for swap in [false,true] {
+            let resources=MutableResources(),queue=queue(resources),started=expectation(description:"Started")
+            let job=try await queue.submit(model:"fixture",operation:"fixture",budget:0) { _ in
+                started.fulfill();try await Task.sleep(for:.seconds(30));return .init(data:Data())
+            }
+            await fulfillment(of:[started],timeout:2)
+            resources.change { if swap { $0.swapActivityBytes=32 << 20 } else { $0.pressure=2 } }
+            do { _ = try await queue.wait(job.id);XCTFail("Work continued while SSD/pressure safeguards were active") } catch {}
+            let info=try await queue.job(job.id);XCTAssertEqual(info.state,.failed)
+            await queue.shutdown()
+        }
+    }
+    func testActiveSwappingNeverStartsAnotherJob() async throws {
+        let resources=MutableResources();resources.change { $0.swapActivityBytes=32 << 20 }
+        let queue=queue(resources,wait:0.03)
+        let job=try await queue.submit(model:"fixture",operation:"fixture",budget:0) { _ in XCTFail("Inference started during SSD swapping");return .init(data:Data()) }
+        do { _ = try await queue.wait(job.id);XCTFail("Unsafe admission") } catch {}
+        let info=try await queue.job(job.id);XCTAssertTrue(info.resources?.reason?.contains("SSD") == true)
+        await queue.shutdown()
+    }
+}
