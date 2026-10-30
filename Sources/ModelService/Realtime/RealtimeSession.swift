@@ -22,6 +22,7 @@ public actor RealtimeSession {
     private let emit: Emit
     private var input: [(pcm: Data, received: ContinuousClock.Instant, sequence: Int)] = []
     private var activated: Bool
+    private var awaitingFirstSpeech: Bool
     private var ready = false
     private var closed = false
     private var committed = false
@@ -37,7 +38,7 @@ public actor RealtimeSession {
     private var speaking = false
     private var muted = false
     private var outputAge: ContinuousClock.Instant?
-    public init(backend: any RealtimeBackend, startPaused: Bool = false, emit: @escaping Emit) { self.backend = backend; self.emit = emit; activated = !startPaused }
+    public init(backend: any RealtimeBackend, startPaused: Bool = false, waitForSpeech: Bool = false, emit: @escaping Emit) { self.backend = backend; self.emit = emit; activated = !startPaused; awaitingFirstSpeech = waitForSpeech }
     public func activate() { activated = true }
     public func receive(_ event: RealtimeEvent) async throws {
         guard !closed else { throw CancellationError() }
@@ -52,6 +53,7 @@ public actor RealtimeSession {
             if Self.rms(pcm) >= 0.02 { lastVoicedInput = inputSequence; voiceFrames += 1; silenceFrames = 0 }
             else { voiceFrames = 0; silenceFrames += 1 }
             if voiceFrames >= 2 && !speaking {
+                awaitingFirstSpeech = false
                 speaking = true; muted = false; epoch += 1; acknowledged = sequence; outputAge = nil
                 try await emit(.init("input_audio.speech_started", epoch: epoch))
                 try await emit(.init("output_audio.clear", sequence: sequence, epoch: epoch))
@@ -85,6 +87,14 @@ public actor RealtimeSession {
                 if committed && input.isEmpty { break }
                 guard lastInput.duration(to: .now) < .seconds(10) else { throw ModelAPIError.unavailable("No microphone frames for ten seconds; session closed.") }
                 guard input.first.map({ $0.received.duration(to: .now) < .seconds(2) }) ?? true else { throw ModelAPIError.unavailable("Local inference cannot keep up with live input; session stopped instead of falling behind.") }
+                if awaitingFirstSpeech {
+                    // Keep a short lead-in, but do not advance the model or play
+                    // its seeded greeting before the local operator speaks.
+                    if input.count > 4 { input.removeFirst(input.count - 4) }
+                    next = .now
+                    try await Task.sleep(for: .milliseconds(20))
+                    continue
+                }
                 guard sequence - acknowledged < 25, outputAge.map({ $0.duration(to: .now) < .seconds(2) }) ?? true else { throw ModelAPIError.unavailable("Playback is behind; acknowledge played audio or reconnect.") }
                 let pcm: Data
                 if input.isEmpty { pcm = Data(repeating: 0, count: 2560) }
@@ -146,7 +156,7 @@ public struct RealtimeService: Sendable {
             return try .json(["status": "ended"])
         }
     }
-    public func makeSession(startPaused: Bool = false, emit: @escaping RealtimeSession.Emit) -> RealtimeSession { RealtimeSession(backend: backend, startPaused: startPaused, emit: emit) }
+    public func makeSession(startPaused: Bool = false, waitForSpeech: Bool = false, emit: @escaping RealtimeSession.Emit) -> RealtimeSession { RealtimeSession(backend: backend, startPaused: startPaused, waitForSpeech: waitForSpeech, emit: emit) }
     public func serve(_ socket: RealtimeSocket, owner: UUID, enabled: @escaping @Sendable (String) async -> Bool) async {
         let session = makeSession(startPaused: true) { try await socket.send($0) }
         var jobID: UUID?

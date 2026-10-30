@@ -147,6 +147,23 @@ final class RealtimeTests: XCTestCase, @unchecked Sendable {
         try await until { await backend.stops > 0 }
         server.stop(); _ = try await run.value; await queue.shutdown()
     }
+    func testLocalPreviewDoesNotGenerateUntilMicrophoneSpeechArrives() async throws {
+        let queue = fixtureQueue(), backend = DuplexFixture(), log = RealtimeLog()
+        let service = RealtimeService(jobs: queue, backend: backend, validate: { _ in })
+        let session = service.makeSession(waitForSpeech: true) { await log.append($0) }
+        let job = try await service.submit(.init(), session: session)
+        try await until { await log.has("session.ready") }
+        for _ in 0..<10 {
+            try await session.receive(.init("input_audio.append", audio: Data(repeating: 0, count: 2560).base64EncodedString()))
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        checkEqual(await backend.steps, 0)
+        checkFalse(await log.has("output_audio.delta"))
+        let voiced = Data(Array(repeating: [UInt8(0), UInt8(64)], count: 1280).flatMap { $0 })
+        for _ in 0..<2 { try await session.receive(.init("input_audio.append", audio: voiced.base64EncodedString())) }
+        try await until { await backend.steps > 0 }
+        try await queue.cancel(job.id); await queue.shutdown()
+    }
     private func awaitValue(_ value: Bool) -> Bool { value }
 }
 
