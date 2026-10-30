@@ -1,13 +1,38 @@
 {
-  "fill": { "automatic-gradient": "extended-srgb:0.36,0.62,1.0,1.0" },
+  "fill": {
+    "automatic-gradient": "extended-srgb:0.36,0.62,1.0,1.0"
+  },
   "groups": [
     {
-      "name": "Original violet brain artwork",
-      "layers": [ { "image-name": "Artwork.png", "name": "Violet brain", "glass": false } ],
+      "name": "Illustrated brain",
+      "layers": [
+        {
+          "image-name": "Brain.png",
+          "name": "Brain \u00b7 softer gloss",
+          "glass": true,
+          "position": {
+            "scale": 0.6,
+            "translation-in-points": [
+              0,
+              0
+            ]
+          }
+        }
+      ],
       "specular": false,
-      "shadow": { "kind": "neutral", "opacity": 0 },
-      "translucency": { "enabled": false, "value": 0 }
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.12
+      },
+      "translucency": {
+        "enabled": false,
+        "value": 0
+      }
     }
   ],
-  "supported-platforms": { "squares": [ "macOS" ] }
+  "supported-platforms": {
+    "squares": [
+      "macOS"
+    ]
+  }
 }
