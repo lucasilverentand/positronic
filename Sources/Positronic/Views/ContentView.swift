@@ -4,7 +4,6 @@ import AppKit
 struct ContentView: View {
     @Bindable var store: AppStore
     @State private var selection: AppPage? = .models
-    @State private var playgroundModel = "apple"
     init(store: AppStore, initialPage: AppPage = .models) {
         self.store = store; _selection = State(initialValue: initialPage)
     }
@@ -24,7 +23,7 @@ struct ContentView: View {
                         ForEach([AppPage.models, .discover]) { page in Label(page.title, systemImage: page.symbol).tag(page) }
                     }
                     Section("Workspace") {
-                        ForEach([AppPage.playground, .audio, .jobs, .api, .settings]) { page in Label(page.title, systemImage: page.symbol).tag(page) }
+                        ForEach([AppPage.jobs, .api, .settings]) { page in Label(page.title, systemImage: page.symbol).tag(page) }
                     }
                 }.listStyle(.sidebar)
                 VStack(alignment: .leading, spacing: 8) {
@@ -37,16 +36,14 @@ struct ContentView: View {
             VStack(spacing: 0) {
                 switch selection ?? .models {
                 case .models:
-                    ModelsPage(store: store, discover: { selection = .discover }, tryModel: openPlayground, openAudio: { selection = .audio })
+                    ModelsPage(store: store, discover: { selection = .discover })
                 case .discover:
                     DiscoverModelsPage(store: store)
                 default:
                     ScrollView {
                         VStack(alignment: .leading, spacing: 22) {
                             switch selection ?? .models {
-                            case .audio: AudioPage(store: store)
                             case .jobs: JobsPage(store: store)
-                            case .playground: PlaygroundView(store: store, model: $playgroundModel)
                             case .api: APIPage(store: store)
                             case .settings: SettingsPage(store: store)
                             default: EmptyView()
@@ -61,7 +58,6 @@ struct ContentView: View {
             .toolbar { ToolbarItem { Button { Task { await store.refresh() } } label: { Label("Refresh", systemImage: "arrow.clockwise") }.disabled(store.busy) } }
         }
     }
-    private func openPlayground(_ model: String) { playgroundModel = model; selection = .playground }
 }
 
 struct PageHeading: View {

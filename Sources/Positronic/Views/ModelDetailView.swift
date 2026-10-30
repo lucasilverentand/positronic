@@ -4,27 +4,26 @@ import ModelService
 struct ModelDetailView: View {
     @Bindable var store: AppStore
     let model: ManagedModel
-    var tryModel: (String) -> Void
-    var openAudio: () -> Void
     @State private var confirmingRemoval = false
     private var memoryKnown: Bool { AudioCatalog.ids.contains(model.id) || store.loadedStatusKnown }
     private var installed: InstalledModel? { model.installed }
-    private var readyForPlayground: Bool {
-        store.models.contains { $0.id == model.id && $0.capability == "generation" && $0.available }
-    }
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
-            VStack(alignment: .leading, spacing: 12) {
-                Image(systemName: model.symbol).font(.system(size: 34, weight: .light)).foregroundStyle(.tint)
-                    .frame(width: 64, height: 64).background(.quaternary, in: RoundedRectangle(cornerRadius: 16))
-                Text(model.title).font(.title2.bold()).fixedSize(horizontal: false, vertical: true)
-                Label(model.locationTitle, systemImage: model.location == .appleCloud ? "cloud" : "laptopcomputer")
-                    .font(.callout).foregroundStyle(.secondary)
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: model.symbol).font(.system(size: 26, weight: .light)).foregroundStyle(.tint)
+                    .frame(width: 44, height: 44).background(.quaternary, in: RoundedRectangle(cornerRadius: 12))
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(model.title).font(.title2.bold()).fixedSize(horizontal: false, vertical: true)
+                    Label(model.locationTitle, systemImage: model.location == .appleCloud ? "cloud" : "laptopcomputer")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
             VStack(alignment: .leading, spacing: 6) {
                 Text("MODEL ID").font(.caption.weight(.medium)).foregroundStyle(.secondary)
                 Text(model.id).font(.system(.callout, design: .monospaced)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
             }
+            ModelTestPanel(store: store, sample: store.testSession(for: model), model: model)
+            Divider()
             if let installed {
                 localControls(installed)
             } else if model.location == .appleCloud {
@@ -32,16 +31,6 @@ struct ModelDetailView: View {
             } else {
                 Text(model.info?.detail ?? "Checking Apple Intelligence…").font(.callout).foregroundStyle(.secondary)
                 Text("Apple manages this model’s files and memory through macOS.").font(.callout).foregroundStyle(.secondary)
-            }
-            if model.capability == .generation {
-                Button { tryModel(model.id) } label: { Label("Open in Playground", systemImage: "text.bubble") }
-                    .frame(maxWidth: .infinity).disabled(!readyForPlayground || store.managingModels)
-                if !readyForPlayground && model.location == .downloaded {
-                    Text("Enable API access to try this model in Playground.").font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            if model.capability == .transcription || model.capability == .speech {
-                Button("Open in Audio", action: openAudio).disabled(!store.configuration.audioModels.contains(model.id))
             }
             if let installed {
                 Divider()

@@ -6,4 +6,5 @@ let package = Package(
                .executable(name: "Positronic", targets: ["Positronic"])],
     targets: [.target(name: "ModelAPI"), .target(name: "ModelService", dependencies: ["ModelAPI"]),
               .executableTarget(name: "Positronic", dependencies: ["ModelAPI", "ModelService"]),
-              .testTarget(name: "ModelAPITests", dependencies: ["ModelAPI", "ModelService"])])
+              .testTarget(name: "ModelAPITests", dependencies: ["ModelAPI", "ModelService"]),
+              .testTarget(name: "PositronicTests", dependencies: ["Positronic", "ModelAPI", "ModelService"])])

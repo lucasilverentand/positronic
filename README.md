@@ -52,31 +52,49 @@ swift test
 
 ## App pages
 
-**Your models** shows all model types together in a searchable list, with memory, API access, load/unload and confirmed removal in the selected model’s detail pane.
+**Your models** shows all model types together in a searchable list. The selected model has its own test input and result alongside its memory, API access, load/unload and removal controls.
 **Discover** is a separate searchable catalog with generation, decision, embedding, transcription and speech sections, plus a persistent download progress bar across pages.
-**Playground** runs generation without saving prompts, with explicit cloud labeling and PCC reasoning controls.
-**Audio** imports recordings, records the microphone, copies transcripts and plays/exports generated WAV speech.
 **Jobs** shows queue positions, progress, resource waits and cancellation.
 **API & Keys** controls serving and client credentials.
 **Settings** contains startup, runtime and network options.
 Downloads and model enable switches work while the API is running; changing a
 model allowlist updates new requests without interrupting accepted work.
 
+## Test a model where you manage it
+
+Select any model in Your models. Its test panel is pinned to that exact model:
+
+- Generation: enter a prompt and see or copy the response.
+- Decisions: enter sample text, a question and choices, then inspect the selected choice, probabilities and confidence.
+- Embeddings: enter texts on separate lines and inspect vector dimensions, a short vector preview and cosine similarity for the first two texts.
+- Transcription: import or record audio, select English/Dutch, then copy the transcript and inspect timestamps.
+- Speech: generate a short sample, play/stop it beside the model and export WAV.
+
+Local tests use temporary operator access without enabling the model for API
+clients or changing saved model choices. PCC still needs explicit operator
+opt-in and its normal entitlement/quota checks. Models are never downloaded by a
+test. Each model keeps its own temporary draft and result while you switch
+selection. Cancellation and progress use the same resource-aware queue as API
+requests. Results expire with their jobs; quitting discards them. Leaving a model
+stops playback or an unfinished microphone recording; submitted work can finish
+and remains visible in Jobs. The separate Playground and Audio testing pages have
+been replaced by these model-specific panels.
+
 ## Local audio and temporary jobs
 
 In Discover, explicitly **Prepare audio runtime**, download Whisper and/or Chatterbox,
-then enable each in Your models. This installs a private, pinned Python/MLX-Audio
+then select one in Your models. Enable API access separately when clients need it. This installs a private, pinned Python/MLX-Audio
 environment and immutable model revisions. No audio model is downloaded on demand.
 After preparation, inference works offline. Audio never uses PCC or another cloud.
 The worker starts only for admitted work and stops after five idle minutes.
 
-Choose English or Dutch on Audio. Import up to 64 MiB / 30 minutes, or record the
+Choose English or Dutch in the selected audio model’s test panel. Import up to 64 MiB / 30 minutes, or record the
 microphone and stop to transcribe. Microphone permission is requested on Record;
 denial leaves file import available. Speech takes up to 5,000 characters and uses
 one packaged default voice. There is no reference-voice upload, cloning, music,
 effects, diarization or live transcription. Export speech before results expire.
 
-Audio, Playground, explicit model loads and API inference share one FIFO scheduler.
+Model tests, explicit model loads and API inference share one FIFO scheduler.
 At most 32 pending jobs are admitted. Resource checks and reservations are atomic
 with scheduling, including on-demand loads. Jobs wait for normal memory pressure,
 a model budget plus the greater of 2 GiB or 10% of physical RAM, CPU capacity and
@@ -121,7 +139,7 @@ Apple availability appears automatically. Choose **Use installed Ollama** to con
 
 Use **Load** to prepare an installed model in memory, and **Unload** to release its memory while keeping its files. Memory status refreshes while the Models page is open; aliases sharing the same weights share this status. Enabled models reload on demand when requested by an API client. Explicit loads stay warm for up to 30 minutes, subject to runtime memory pressure and other requests; the prepared runtime allows one loaded model at a time.
 
-Choose **Remove from Mac…** in a model’s menu to confirm deletion. The app disables that tag for API clients, unloads it, deletes it through the runtime and verifies it is gone. Shared files needed by other installed tags remain. A failed deletion stays disabled and reports an error. Management asks you to wait while API or Playground inference is in progress and is unavailable during downloads. Apple Intelligence is managed by macOS and has no app-level load or delete controls.
+Choose **Remove from Mac…** in a model’s menu to confirm deletion. The app disables that tag for API clients, unloads it, deletes it through the runtime and verifies it is gone. Shared files needed by other installed tags remain. A failed deletion stays disabled and reports an error. Management asks you to wait while API or model-test inference is in progress and is unavailable during downloads. Apple Intelligence is managed by macOS and has no app-level load or delete controls.
 
 The model library includes Muse Glimmer 30B (4-bit), Qwen 3.5, Gemma 4, Llama 3.2, Mistral, DeepSeek R1 and Qwen Coder for generation; Clef, Clef Flash, Nimble and Tev1 for decisions; and EmbeddingGemma and Nomic Embed Text for embeddings. Any other compatible installed local model can be enabled using its exact tag under Advanced model tags. Model licenses and memory requirements are linked from each library entry. Downloaded weights remain outside Git and the app bundle.
 
@@ -146,9 +164,9 @@ Avoid running multiple large models simultaneously on a memory-constrained Mac.
 
 ## Optional Apple Private Cloud Compute
 
-PCC is a separate model, `apple-pcc`, and is off by default, including when loading older settings. Enable **Allow Private Cloud Compute for Playground and API clients** in the Private Cloud Compute detail pane under Your models when using a provisioned build. API clients must select `apple-pcc` explicitly; `apple` always uses the on-device model and Ollama tags retain their local routing. There is no automatic cloud fallback. A failed PCC request is returned as an error.
+PCC is a separate model, `apple-pcc`, and is off by default, including when loading older settings. Enable **Allow Private Cloud Compute** in the Private Cloud Compute detail pane under Your models when using a provisioned build. API clients must select `apple-pcc` explicitly; `apple` always uses the on-device model and Ollama tags retain their local routing. There is no automatic cloud fallback. A failed PCC request is returned as an error.
 
-The Playground exposes light, moderate and deep reasoning when PCC is selected. The API accepts `reasoningLevel` with the same values and defaults to `moderate`. Text and the supported structured-output schema subset are available. Model discovery labels execution as `local` or `applePrivateCloudCompute` and advertises PCC reasoning levels. Availability includes entitlement, OS readiness and Apple quota checks. Near-limit, quota-exhaustion, network and service failures have actionable messages. The app does not buy subscriptions or increase quota automatically; quotas and plan terms are controlled by Apple.
+The PCC model’s test panel exposes light, moderate and deep reasoning. The API accepts `reasoningLevel` with the same values and defaults to `moderate`. Text and the supported structured-output schema subset are available. Model discovery labels execution as `local` or `applePrivateCloudCompute` and advertises PCC reasoning levels. Availability includes entitlement, OS readiness and Apple quota checks. Near-limit, quota-exhaustion, network and service failures have actionable messages. The app does not buy subscriptions or increase quota automatically; quotas and plan terms are controlled by Apple.
 
 PCC requires **macOS 27**, a build made with **Xcode 27 / Swift 6.4 or later**, and Apple’s managed `com.apple.developer.private-cloud-compute` entitlement. Apple currently requires App Store Small Business Program enrollment, fewer than two million first-time app downloads, and entitlement approval. See [Apple’s eligibility and distribution requirements](https://developer.apple.com/private-cloud-compute/) for current terms and supported testing/distribution paths. Adding the entitlement locally cannot grant access.
 

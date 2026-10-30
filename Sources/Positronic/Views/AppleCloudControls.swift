@@ -12,7 +12,7 @@ struct AppleCloudControls: View {
                 set: { enabled in Task { await store.setApplePCC(enabled) } }
             )).toggleStyle(.switch).disabled(store.managingModels)
             Text(info?.detail ?? "Checking Private Cloud Compute…").font(.callout).foregroundStyle(.secondary)
-            Text("Playground and API clients must select this model explicitly. Requests use Apple’s servers and daily quota. Positronic never upgrades your plan automatically.")
+            Text("Model tests and API clients must select this model explicitly. Requests use Apple’s servers and daily quota. Positronic never upgrades your plan automatically.")
                 .font(.caption).foregroundStyle(.secondary)
             Link("Apple access requirements", destination: URL(string: "https://developer.apple.com/private-cloud-compute/")!)
         }

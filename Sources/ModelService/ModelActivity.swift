@@ -1,7 +1,7 @@
 import Foundation
 import ModelAPI
 
-/// Shared by the app, playground and API across configuration refreshes.
+/// Shared by the app, model tests and API across configuration refreshes.
 /// Management never interrupts a request that has already started inference.
 public actor ModelActivity {
     private var inferenceCount = 0

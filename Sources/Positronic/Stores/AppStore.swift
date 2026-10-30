@@ -18,13 +18,19 @@ final class AppStore {
     private let modelActivity: ModelActivity
     let audioRuntime: AudioRuntime
     let audioService: AudioService
-    let audioCapture = AudioCapture()
+    @ObservationIgnored private var modelTests: [String: ModelTestStore] = [:]
+    func testSession(for model: ManagedModel) -> ModelTestStore {
+        if let existing = modelTests[model.id], existing.capability == model.capability { return existing }
+        modelTests[model.id]?.cancel()
+        let session = ModelTestStore(model: model, app: self); modelTests[model.id] = session; return session
+    }
+    @ObservationIgnored private let engineTransport: ModelAPIClient.Transport?
     var queueReady = false
     var jobRecords: [ModelJob] = []
     var managingModels: Bool { modelOperation != nil }
     var canManageModels: Bool { queueReady && !busy && !managingModels && downloading == nil }
     func makeEngine(configuration value: ServiceConfiguration? = nil) throws -> LocalModelEngine {
-        try LocalModelEngine(configuration: value ?? configuration, activity: modelActivity)
+        try LocalModelEngine(configuration: value ?? configuration, transport: engineTransport, activity: modelActivity)
     }
     var downloading: ModelPreset?
     var downloadProgress: ModelDownloadProgress?
@@ -47,8 +53,8 @@ final class AppStore {
     private let runtime = OllamaRuntime()
     private let configURL = PrivateFiles.directory.appendingPathComponent("settings.json")
     var endpoint: String { "http://127.0.0.1:\(configuration.port)" }
-    init() {
-        let queue = JobQueue(), audio = AudioRuntime()
+    init(jobs queue: JobQueue = JobQueue(), audio: AudioRuntime = AudioRuntime(), transport: ModelAPIClient.Transport? = nil) {
+        engineTransport = transport
         jobs = queue; modelActivity = ModelActivity(jobs: queue); audioRuntime = audio
         audioService = AudioService(runtime: audio, queue: queue)
     }
@@ -248,7 +254,7 @@ final class AppStore {
                 _ = try await jobs.wait(job.id)
                 message = "\(model.id) is loaded and ready."; await refresh(); return
             }
-            // The shared gate survives engine replacements and also covers Playground requests.
+            // The shared gate survives engine replacements and also covers model tests.
             try await modelActivity.withManagement { @MainActor in
                 switch action {
                 case .load: try await manager.load(model.id)
@@ -299,7 +305,7 @@ final class AppStore {
         downloadTask?.cancel()
     }
     func shutdown() async {
-        audioCapture.cancel()
+        for session in modelTests.values { session.cancel() }
         cancelDownload()
         await downloadTask?.value
         server?.stop(); serverTask?.cancel()

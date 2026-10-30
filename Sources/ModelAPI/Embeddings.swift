@@ -21,3 +21,16 @@ public struct EmbeddingResponse: Codable, Sendable {
               let tokens = usage.input_tokens, tokens >= 0 else { throw ModelAPIError.invalid("Embedding vectors, model identity or measured usage are invalid.") }
     }
 }
+
+public extension EmbeddingResponse {
+    /// Scale before taking norms so large finite coordinates do not overflow.
+    func cosineSimilarity(between first: Int, and second: Int) -> Double? {
+        guard embeddings.indices.contains(first), embeddings.indices.contains(second) else { return nil }
+        let a = embeddings[first], b = embeddings[second]
+        guard !a.isEmpty, a.count == b.count, a.allSatisfy(\.isFinite), b.allSatisfy(\.isFinite),
+              let scaleA = a.map({ abs($0) }).max(), let scaleB = b.map({ abs($0) }).max(), scaleA > 0, scaleB > 0 else { return nil }
+        var dot = 0.0, normA = 0.0, normB = 0.0
+        for (x,y) in zip(a,b) { let u=x/scaleA,v=y/scaleB;dot += u*v;normA += u*u;normB += v*v }
+        return min(1, max(-1, dot / sqrt(normA) / sqrt(normB)))
+    }
+}
