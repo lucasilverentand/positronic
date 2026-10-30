@@ -170,3 +170,24 @@ these transport fixtures for an actual realtime-model inference receipt.
 Sources: [pinned checkpoint](https://huggingface.co/mlx-community/NemotronLabs-VoiceChat-11B-4bit/tree/dffd203fef7a380081da89479c55848e50b98413),
 [MLX-VLM](https://github.com/Blaizzy/mlx-vlm),
 [MLX-Audio](https://github.com/Blaizzy/mlx-audio).
+
+## Bounded physical-Mac check
+
+With the app stopped, one shared heavy-work lease held, and the runtime/model
+explicitly installed, run:
+
+```sh
+POSITRONIC_LIVE_REALTIME=1 \
+POSITRONIC_LIVE_REALTIME_OUTPUT=/private/tmp/positronic-live-conversation \
+swift test --jobs 2 --filter LiveRealtimeTests.testNativeDuplexConversationOverStreamingAPI
+```
+
+The opt-in check establishes a 30-second swap window, applies the production
+16 GiB admission budget, creates two spoken prompts locally, and connects the
+real Swift client to an authenticated temporary instance of the production router.
+It streams live-paced PCM, interrupts the first answer, asks a follow-up question,
+saves generated WAV audio and transcribes that output locally. A telemetry receipt
+records pressure, memory, disk, swap activity and worker RSS. The live stream is
+bounded to 40 seconds and the whole attempt has a three-minute deadline. Inference
+never starts if admission is blocked; a resource skip is not a conversation pass.
+Temporary keys and API allowlists do not change the operator's configuration.
