@@ -1,5 +1,6 @@
 import SwiftUI
 import ModelService
+import ModelAPI
 
 struct ModelsPage: View {
     @Bindable var store: AppStore
@@ -61,6 +62,9 @@ struct ModelsPage: View {
             }.frame(minWidth: 340, idealWidth: 420, maxWidth: 480)
         }
         .onChange(of: filtered.map(\.id), initial: true) {
+            if store.launchConversationPending, filtered.contains(where: { $0.id == RealtimeConfiguration.modelID }) {
+                selectedID = RealtimeConfiguration.modelID; return
+            }
             guard !filtered.contains(where: { $0.id == selectedID }) else { return }
             selectedID = filtered.first { $0.installed?.capability == .generation }?.id ?? filtered.first?.id
         }

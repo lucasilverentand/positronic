@@ -4,8 +4,9 @@ import ModelService
 struct RealtimePreview: View {
     @State private var preview: RealtimePreviewStore
     let available: Bool
+    let store: AppStore
     init(store: AppStore, available: Bool) {
-        _preview = State(initialValue: RealtimePreviewStore(jobs: store.jobs, runtime: store.audioRuntime)); self.available = available
+        _preview = State(initialValue: RealtimePreviewStore(jobs: store.jobs, runtime: store.audioRuntime)); self.available = available; self.store = store
     }
     var body: some View {
         GroupBox("Try a live conversation") {
@@ -23,6 +24,12 @@ struct RealtimePreview: View {
                 if !preview.assistantText.isEmpty { Text("Model").font(.caption.bold()); Text(preview.assistantText).textSelection(.enabled) }
                 Text("Local preview does not enable API access. Microphone capture starts only after admission. Headphones help avoid echo.").font(.caption).foregroundStyle(.secondary)
             }.padding(10)
-        }.onDisappear { preview.stop() }
+        }
+        .task(id: available) {
+            guard available, store.launchConversationPending else { return }
+            store.launchConversationPending = false
+            preview.start()
+        }
+        .onDisappear { preview.stop() }
     }
 }

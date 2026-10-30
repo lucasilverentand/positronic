@@ -29,6 +29,8 @@ final class AppStore {
     }
     @ObservationIgnored private let engineTransport: ModelAPIClient.Transport?
     var queueReady = false
+    // Explicit launch request only; never persisted or repeated after consumption.
+    var launchConversationPending = CommandLine.arguments.contains("--start-conversation")
     var jobRecords: [ModelJob] = []
     var managingModels: Bool { modelOperation != nil }
     var canManageModels: Bool { queueReady && !busy && !managingModels && downloading == nil }
