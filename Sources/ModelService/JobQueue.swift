@@ -12,15 +12,19 @@ public struct JobResult: Sendable {
 }
 public enum JobExecution {
     @TaskLocal public static var queueID: UUID?
+    @TaskLocal public static var memoryCheckpoint: (@Sendable (Int64) async throws -> Void)?
+    @TaskLocal public static var metrics: ModelRunMetrics?
+    @TaskLocal public static var phase: (@Sendable (JobState) async -> Void)?
 }
 public actor JobQueue {
     public typealias Operation = @Sendable (UUID) async throws -> JobResult
     public typealias Probe = @Sendable () throws -> ResourceSnapshot
     public let identity = UUID()
     private struct Entry: Sendable {
-        var info: ModelJob; var owner: UUID?; var budget: Int64?; var disk: Int64
+        var info: ModelJob; var owner: UUID?; var budget: Int64?; var disk: Int64; var staged: Bool
         var operation: Operation; var result: JobResult?; var clean: @Sendable () -> Void
         var expiry: Date?; var output: URL?
+        var context: ModelResourceContext?; var metrics = ModelRunMetrics(); var startedAt: Date?
     }
     private var entries: [UUID: Entry] = [:]
     private var pending: [UUID] = []
@@ -42,13 +46,16 @@ public actor JobQueue {
     private let interval: Duration
     private let waitLimit: TimeInterval
     private let retention: TimeInterval
+    private var profiles: ModelResourceProfiles?
+    private var contextProvider: (@Sendable (String, String) async -> ModelResourceContext?)?
+    private var profileWrite: Task<Void, Never>?
     private var prepare: (@Sendable (String) async throws -> Void)?
     private var cancelWorker: (@Sendable () async -> Void)?
     public init(directory: URL = PrivateFiles.directory.appendingPathComponent("Jobs"), interval: Duration = .seconds(2), waitLimit: TimeInterval = 600, retention: TimeInterval = 1800, probe: @escaping Probe = { try ResourceMonitor.snapshot() }) {
         self.directory = directory; self.probe = probe; self.interval = interval; self.waitLimit = waitLimit; self.retention = retention
     }
-    public func configure(prepare: @escaping @Sendable (String) async throws -> Void, cancelWorker: @escaping @Sendable () async -> Void, footprint: @escaping @Sendable () async throws -> Int64 = { 0 }, residency: @escaping @Sendable (String) async throws -> Int64 = { _ in 0 }) {
-        self.prepare = prepare; self.cancelWorker = cancelWorker; self.footprint = footprint; self.residency = residency
+    public func configure(prepare: @escaping @Sendable (String) async throws -> Void, cancelWorker: @escaping @Sendable () async -> Void, footprint: @escaping @Sendable () async throws -> Int64 = { 0 }, residency: @escaping @Sendable (String) async throws -> Int64 = { _ in 0 }, profiles: ModelResourceProfiles? = nil, context: (@Sendable (String, String) async -> ModelResourceContext?)? = nil) {
+        self.prepare = prepare; self.cancelWorker = cancelWorker; self.footprint = footprint; self.residency = residency; self.profiles = profiles; self.contextProvider = context
     }
     public func start() throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
@@ -64,14 +71,14 @@ public actor JobQueue {
         stopped = false; started = true
         reaper = Task { while !Task.isCancelled { do { try await Task.sleep(for: .seconds(30)); self.prune() } catch { return } } }
     }
-    public func submit(model: String, operation: String, owner: UUID? = nil, budget: Int64?, disk: Int64 = 0, cleanup: @escaping @Sendable () -> Void = {}, execute: @escaping Operation) throws -> ModelJob {
+    public func submit(model: String, operation: String, owner: UUID? = nil, budget: Int64?, disk: Int64 = 0, staged: Bool = false, profile: ModelResourceContext? = nil, cleanup: @escaping @Sendable () -> Void = {}, execute: @escaping Operation) throws -> ModelJob {
         if !started { try start() }
         if let owner, revoked.contains(owner) { throw ModelAPIError.unauthorized }
         guard !stopped else { throw ModelAPIError.unavailable("The job queue is shutting down.") }
         guard pending.count < 32 else { throw QueueFull() }
         prune()
         let job = ModelJob(id: UUID(), model: model, operation: operation, state: .queued, createdAt: Date())
-        entries[job.id] = .init(info: job, owner: owner, budget: budget, disk: disk, operation: execute, clean: cleanup)
+        entries[job.id] = .init(info: job, owner: owner, budget: budget, disk: disk, staged: staged, operation: execute, clean: cleanup, context: profile)
         pending.append(job.id)
         if pumping == nil { pumping = Task { await pump() } }
         return job
@@ -122,6 +129,7 @@ public actor JobQueue {
         for id in Array(entries.keys) { if entries[id]?.info.state.terminal == false { finish(id, state: .cancelled, message: "App stopped; resubmit from your client.") } }
         pending = []
         for item in entries.values { if let output = item.output { try? FileManager.default.removeItem(at: output) } }
+        await profileWrite?.value
         entries = [:]
         if let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) {
             for file in files where file.lastPathComponent != ".lock" { try? FileManager.default.removeItem(at: file) }
@@ -149,11 +157,18 @@ public actor JobQueue {
         defer { pumping = nil }
         while !stopped, !Task.isCancelled, let id = pending.first {
             if managing { try? await Task.sleep(for: .milliseconds(100)); continue }
-            guard let item = entries[id] else { pending.removeFirst(); continue }
+            guard var item = entries[id] else { pending.removeFirst(); continue }
             current = id
             do {
                 update(id, state: .loading, message: "Preparing local resources.")
                 try await prepare?(item.info.model)
+                if item.context == nil { item.context = await contextProvider?(item.info.model, item.info.operation); entries[id]?.context = item.context }
+                if let profiles, let context = item.context, let learned = try? await profiles.learnedBudget(model: item.info.model, operation: item.info.operation, context: context) {
+                    item.budget = learned; entries[id]?.budget = item.budget
+                }
+                if let profiles, let context = item.context, let floor = try? await profiles.failedRunFloor(model: item.info.model, operation: item.info.operation, context: context), let budget = item.budget {
+                    item.budget = max(budget, floor); entries[id]?.budget = item.budget
+                }
                 let deadline = Date().addingTimeInterval(waitLimit)
                 var admitted: ResourceSnapshot?
                 while Date() < deadline, entries[id]?.info.state.terminal == false {
@@ -161,8 +176,14 @@ public actor JobQueue {
                     do {
                         let snapshot = try probe()
                         let credit = try await residency?(item.info.model) ?? 0
-                        let incremental = item.budget.map { max(0, $0 - credit) }
-                        let status = ResourceMonitor.restriction(snapshot, budget: incremental, diskBytes: item.disk)
+                        let incremental = item.budget.map { peak -> Int64 in
+                            // Staged workers must request permission before each bounded allocation.
+                            // The full estimate remains the running RSS ceiling, not an upfront block.
+                            if item.staged, peak <= snapshot.physical - ResourceMonitor.headroom(physical: snapshot.physical) { return min(peak, 512 << 20) }
+                            return max(0, peak - credit)
+                        }
+                        var status = ResourceMonitor.restriction(snapshot, budget: incremental, diskBytes: item.disk)
+                        if item.staged { status.estimatedPeakMemoryBytes = item.budget }
                         entries[id]?.info.resources = status
                         if status.reason == nil { admitted = snapshot; break }
                         update(id, state: .waitingForResources, message: status.reason)
@@ -174,11 +195,29 @@ public actor JobQueue {
                 try Task.checkCancellation()
                 pending.removeAll { $0 == id }
                 update(id, state: .running, message: "Running locally.")
+                entries[id]?.startedAt = Date()
                 let queueID = identity
-                let task = Task { try await JobExecution.$queueID.withValue(queueID) { try await item.operation(id) } }
+                let checkpoint: (@Sendable (Int64) async throws -> Void)?
+                if item.staged { checkpoint = { bytes in try await self.checkGrowth(id, bytes: bytes) } }
+                else { checkpoint = nil }
+                let report: @Sendable (JobState) async -> Void = { state in await self.update(id, state: state) }
+                let entry = item
+                let operation: @Sendable () async throws -> JobResult = {
+                    try await JobExecution.$metrics.withValue(entry.metrics) { try await entry.operation(id) }
+                }
+                let phased: @Sendable () async throws -> JobResult = {
+                    try await JobExecution.$phase.withValue(report, operation: operation)
+                }
+                let checked: @Sendable () async throws -> JobResult = {
+                    try await JobExecution.$memoryCheckpoint.withValue(checkpoint, operation: phased)
+                }
+                let task = Task<JobResult, any Error> {
+                    try await JobExecution.$queueID.withValue(queueID, operation: checked)
+                }
                 running = task
                 monitor = Task { await watch(id, baseline: baseline, budget: item.budget) }
                 let output = try await task.value
+                if let memory = try await footprint?() { await item.metrics.memory(memory) }
                 try Task.checkCancellation()
                 if entries[id]?.info.state.terminal == false {
                     guard try probe().disk >= ResourceMonitor.diskReserve + (output.file == nil ? Int64(output.data.count) : 0) else { throw ModelAPIError.unavailable("Not enough disk space to retain the result safely.") }
@@ -198,6 +237,30 @@ public actor JobQueue {
             pending.removeAll { $0 == id }
         }
     }
+    private func checkGrowth(_ id: UUID, bytes: Int64) async throws {
+        guard bytes > 0, bytes <= 4 << 30, current == id, let item = entries[id], item.staged else { throw ModelAPIError.invalid("Invalid staged memory request.") }
+        let deadline = Date().addingTimeInterval(waitLimit)
+        let resume = item.info.state == .loading ? JobState.loading : .running
+        var waiting = false
+        while Date() < deadline {
+            try Task.checkCancellation()
+            guard entries[id]?.info.state.terminal == false else { throw CancellationError() }
+            if let memory = try await footprint?() { await item.metrics.memory(memory) }
+            try Task.checkCancellation()
+            guard entries[id]?.info.state.terminal == false else { throw CancellationError() }
+            let snapshot = try probe()
+            var status = ResourceMonitor.restriction(snapshot, budget: bytes)
+            status.estimatedPeakMemoryBytes = item.budget
+            entries[id]?.info.resources = status
+            if status.reason == nil {
+                if waiting { update(id, state: resume, message: resume == .loading ? "Loading in measured steps." : "Running locally.") }
+                return
+            }
+            waiting = true; update(id, state: .waitingForResources, message: status.reason)
+            try await Task.sleep(for: interval)
+        }
+        throw ModelAPIError.unavailable("Timed out waiting for the next safe memory allocation. Retry when resources are available.")
+    }
     private func watch(_ id: UUID, baseline: ResourceSnapshot, budget: Int64?) async {
         var samples: [(Date, Int64)] = [(Date(), baseline.swap)]
         while !Task.isCancelled {
@@ -207,6 +270,7 @@ public actor JobQueue {
                 samples.append((now, snapshot.swap)); samples.removeAll { now.timeIntervalSince($0.0) > 30 }
                 let critical = snapshot.pressure != 1 || snapshot.thermal >= 3 || snapshot.swapActivityBytes >= ResourceMonitor.swapActivityLimit || snapshot.swap - (samples.first?.1 ?? baseline.swap) >= ResourceMonitor.swapActivityLimit || snapshot.available < ResourceMonitor.headroom(physical: snapshot.physical)
                 let memory = critical ? 0 : try await footprint?() ?? 0
+                if let metrics = entries[id]?.metrics { await metrics.memory(memory) }
                 if critical || memory > (budget ?? Int64.max) {
                     finish(id, state: .failed, message: "Stopped to keep the Mac responsive and avoid SSD swapping. Retry when memory pressure and swap activity settle.")
                     running?.cancel(); await releaseResources(); return
@@ -225,6 +289,14 @@ public actor JobQueue {
     }
     private func finish(_ id: UUID, state: JobState, message: String) {
         guard entries[id]?.info.state.terminal == false else { return }
+        if let entry = entries[id], entry.startedAt != nil, let profiles, let context = entry.context {
+            let previous = profileWrite, metrics = entry.metrics, model = entry.info.model, operation = entry.info.operation
+            profileWrite = Task {
+                await previous?.value
+                let measured = await metrics.observation()
+                await profiles.recordSafely(model: model, operation: operation, context: context, outcome: state, observation: measured)
+            }
+        }
         entries[id]?.info.state = state; entries[id]?.info.message = message; entries[id]?.info.finishedAt = Date(); entries[id]?.expiry = Date().addingTimeInterval(retention)
         if current != id || running == nil { cleanup(id) }
         entries[id]?.operation = { _ in throw JobNotFound() }

@@ -41,6 +41,9 @@ struct JobsPage: View {
                     if let resources = job.resources {
                         Text("RAM: \(bytes(resources.availableMemoryBytes)) available / \(bytes(resources.requiredMemoryBytes)) required · Disk: \(bytes(resources.availableDiskBytes)) available")
                             .font(.caption).foregroundStyle(.secondary)
+                        if let peak = resources.estimatedPeakMemoryBytes {
+                            Text("Requirement is for the next checked allocation. Estimated full peak: \(bytes(peak)).").font(.caption).foregroundStyle(.secondary)
+                        }
                         if let memory = resources.memory {
                             Text("Includes \(bytes(memory.reclaimableBytes)) estimated reclaimable cache · System headroom: \(bytes(resources.systemHeadroomBytes ?? 0))")
                                 .font(.caption).foregroundStyle(.secondary)

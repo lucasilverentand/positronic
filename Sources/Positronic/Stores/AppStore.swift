@@ -14,6 +14,9 @@ final class AppStore {
     var loadedModels: [LoadedModel] = []
     var loadedStatusKnown = false
     var modelOperation: String?
+    let modelProfiles = ModelResourceProfiles()
+    var resourceProfiles: [ModelResourceProfile] = []
+    var resourceProfileMessage = ""
     let jobs: JobQueue
     private let modelActivity: ModelActivity
     let audioRuntime: AudioRuntime
@@ -58,7 +61,22 @@ final class AppStore {
         jobs = queue; modelActivity = ModelActivity(jobs: queue); audioRuntime = audio
         audioService = AudioService(runtime: audio, queue: queue)
     }
-    func refreshJobs() async { jobRecords = await jobs.list() }
+    func refreshJobs() async { jobRecords = await jobs.list(); await refreshResourceProfiles() }
+    func refreshResourceProfiles() async {
+        do { resourceProfiles = try await modelProfiles.all(); resourceProfileMessage = await modelProfiles.lastWriteError ?? "" }
+        catch { resourceProfileMessage = "Resource observations are unavailable." }
+    }
+    private func resourceContext(_ model: String, operation: String) async -> ModelResourceContext? {
+        if AudioCatalog.ids.contains(model) {
+            var context = AudioCatalog.profileContext(model)
+            context?.completeMeasurement = operation == "load"
+            return context
+        }
+        guard let endpoint = await runtime.ownedEndpoint(), endpoint.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) == configuration.ollamaURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")),
+              let installed = try? await ModelLibrary(configuration: configuration).installed(),
+              let digest = installed.first(where: { $0.id == model })?.digest else { return nil }
+        return .init(revision: digest, runtime: "owned-ollama:" + RuntimeSetup.version, completeMeasurement: false)
+    }
     func prepareAudioRuntime() async {
         guard canManageModels else { return }; busy = true; defer { busy = false }
         do {
@@ -106,7 +124,7 @@ final class AppStore {
             if FileManager.default.fileExists(atPath: configURL.path) { configuration = try JSONDecoder().decode(ServiceConfiguration.self, from: Data(contentsOf: configURL)) }
             try configuration.validate()
             try await jobs.start(); queueReady = true
-            await jobs.configure(prepare: { [weak self] model in try await self?.prepareForJob(model) }, cancelWorker: { [weak self] in await self?.cancelInferenceResources() }, footprint: { [weak self] in try await self?.residentMemory() ?? 0 }, residency: { [weak self] model in try await self?.residentMemory(for: model) ?? 0 })
+            await jobs.configure(prepare: { [weak self] model in try await self?.prepareForJob(model) }, cancelWorker: { [weak self] in await self?.cancelInferenceResources() }, footprint: { [weak self] in try await self?.residentMemory() ?? 0 }, residency: { [weak self] model in try await self?.residentMemory(for: model) ?? 0 }, profiles: modelProfiles, context: { [weak self] model, operation in await self?.resourceContext(model, operation: operation) })
             vault = try APIKeys()
             await vault?.observeRevocations { [jobs] id in await jobs.revoke(id) }
             await audioService.update(enabled: configuration.audioModels)
@@ -246,7 +264,7 @@ final class AppStore {
                 let budget: Int64?
                 if let value = AudioCatalog.budget(model.id) { budget = value }
                 else { budget = await (try makeEngine()).budget(for: model.id) }
-                let job = try await jobs.submit(model: model.id, operation: "load", budget: budget) { [audioRuntime, jobs] id in
+                let job = try await jobs.submit(model: model.id, operation: "load", budget: budget, staged: model.id == RealtimeConfiguration.modelID) { [audioRuntime, jobs] id in
                     await jobs.update(id, state: .loading)
                     if AudioCatalog.ids.contains(model.id) { try await audioRuntime.load(model.id) }
                     else { try await manager.load(model.id) }

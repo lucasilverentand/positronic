@@ -36,7 +36,7 @@ final class RealtimeTests: XCTestCase, @unchecked Sendable {
         XCTAssertThrowsError(try RealtimeConfiguration(instructions: String(repeating: "x", count: 1025)).validate())
         XCTAssertThrowsError(try RealtimeConfiguration(maxDurationSeconds: 601).validate())
         checkEqual(AudioCatalog.presets.first { $0.id == RealtimeConfiguration.modelID }?.capability, .conversation)
-        checkEqual(AudioCatalog.budget(RealtimeConfiguration.modelID), 16 << 30)
+        checkTrue((AudioCatalog.budget(RealtimeConfiguration.modelID) ?? 0) > 8 << 30)
     }
     private func masked(_ data: Data, opcode: UInt8 = 1, final: Bool = true) -> Data {
         let mask: [UInt8] = [1,2,3,4]; var bytes = Data([opcode | (final ? 128 : 0)])
@@ -67,6 +67,17 @@ final class RealtimeTests: XCTestCase, @unchecked Sendable {
         checkEqual(frames.first?.sampleRate, 22050); checkEqual(frames.first?.sequence, 1)
         try await session.receive(.init("playback.ack", sequence: 1, epoch: 0))
         try await session.receive(.init("input_audio.commit"))
+        let playback = Task {
+            while !Task.isCancelled {
+                let pending = await log.values.last { $0.type == "output_audio.delta" }
+                if let pending, let sequence = pending.sequence, let epoch = pending.epoch {
+                    try await session.receive(.init("playback.ack", sequence: sequence, epoch: epoch))
+                }
+                if await log.has("session.done") { return }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+        defer { playback.cancel() }
         _ = try await queue.wait(job.id)
         checkTrue(awaitValue(await log.has("session.done")))
         checkEqual(await queue.list(owner: UUID()).count, 0)
@@ -182,5 +193,14 @@ extension RealtimeTests {
             checkEqual(response.statusCode, 401)
         }
         server.stop(); _ = try await run.value
+    }
+}
+extension RealtimeTests {
+    func testBudgetIncludesActualWeightsAndSessionGrowth() {
+        let short = RealtimeMemoryBudget.estimate(weightBytes: 9 << 30, seconds: 40)
+        let long = RealtimeMemoryBudget.estimate(weightBytes: 9 << 30, seconds: 600)
+        checkTrue((short ?? 0) > 9 << 30); checkGreater(long ?? 0, short ?? 0)
+        checkEqual(RealtimeMemoryBudget.estimate(weightBytes: 0, seconds: 40), nil)
+        checkEqual(RealtimeMemoryBudget.estimate(weightBytes: 9 << 30, seconds: 601), nil)
     }
 }

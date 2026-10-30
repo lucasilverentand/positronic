@@ -12,7 +12,29 @@ public enum AudioCatalog {
         .init(id: ids[2], name: "Nemotron VoiceChat · 11B · 4-bit", capability: .conversation, detail: "Full-duplex English conversation · built-in LLM · about 9.2 GB", source: URL(string: "https://huggingface.co/mlx-community/NemotronLabs-VoiceChat-11B-4bit")!)
     ]
     public static func budget(_ model: String) -> Int64? {
-        switch model { case ids[2]: 16 * 1024 * 1024 * 1024; case ids[0]: 6 * 1024 * 1024 * 1024; case ids[1]: 6 * 1024 * 1024 * 1024; default: nil }
+        switch model { case ids[2]: realtimeBudget(seconds: 600); case ids[0]: 6 * 1024 * 1024 * 1024; case ids[1]: 6 * 1024 * 1024 * 1024; default: nil }
+    }
+    public static func realtimeBudget(seconds: Int) -> Int64 {
+        guard let data = try? Data(contentsOf: receipt(RealtimeConfiguration.modelID)),
+              let raw = try? JSONDecoder().decode(JSONValue.self, from: data), case .array(let files) = raw.object?["files"] else { return 16 << 30 }
+        let weights = files.filter { $0.object?["path"]?.string?.hasSuffix(".safetensors") == true }.compactMap { $0.object?["size"]?.numberValue.flatMap(Int64.init(exactly:)) }.reduce(0, +)
+        return RealtimeMemoryBudget.estimate(weightBytes: weights, seconds: seconds) ?? (16 << 30)
+    }
+    public static func profileContext(_ model: String, seconds: Double = 0) -> ModelResourceContext? {
+        guard ids.contains(model), let data = try? Data(contentsOf: receipt(model)),
+              let raw = try? JSONDecoder().decode(JSONValue.self, from: data), let revision = raw.object?["revision"]?.string,
+              let manifestData = try? Data(contentsOf: directory.appendingPathComponent("runtime.json")),
+              let manifest = try? JSONDecoder().decode(JSONValue.self, from: manifestData), let lock = manifest.object?["lock"]?.string else { return nil }
+        var weights: Int64 = 0
+        if case .array(let files) = raw.object?["files"] {
+            weights = files.filter { $0.object?["path"]?.string?.hasSuffix(".safetensors") == true }.compactMap { $0.object?["size"]?.numberValue.flatMap(Int64.init(exactly:)) }.reduce(0, +)
+        }
+        var implementation = Data()
+        for name in ["worker.py", "realtime_optimizations.py"] {
+            if let bytes = try? Data(contentsOf: resources.appendingPathComponent(name)) { implementation.append(bytes) }
+        }
+        let variant = SHA256.hash(data: implementation).map { String(format: "%02x", $0) }.joined()
+        return .init(revision: revision, runtime: "mlx:" + lock + ":" + variant, completeMeasurement: true, requestedContextSeconds: seconds, minimumBudgetBytes: weights + (512 << 20) + Int64(max(0, min(600, seconds))) * (4 << 20))
     }
     public static var resources: URL {
         if let url = Bundle.main.resourceURL?.appendingPathComponent("Audio"), FileManager.default.fileExists(atPath: url.appendingPathComponent("worker.py").path) { return url }

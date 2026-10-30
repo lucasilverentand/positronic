@@ -25,6 +25,7 @@ public struct ResourceStatus: Codable, Sendable {
     public var memory: MemoryBreakdown?
     public var systemHeadroomBytes: Int64?
     public var swapActivityBytes: Int64?
+    public var estimatedPeakMemoryBytes: Int64?
     public init(availableMemoryBytes: Int64, requiredMemoryBytes: Int64, availableDiskBytes: Int64, reason: String? = nil, memory: MemoryBreakdown? = nil, systemHeadroomBytes: Int64? = nil, swapActivityBytes: Int64? = nil) {
         self.availableMemoryBytes = availableMemoryBytes; self.requiredMemoryBytes = requiredMemoryBytes; self.availableDiskBytes = availableDiskBytes; self.reason = reason
         self.memory = memory; self.systemHeadroomBytes = systemHeadroomBytes; self.swapActivityBytes = swapActivityBytes

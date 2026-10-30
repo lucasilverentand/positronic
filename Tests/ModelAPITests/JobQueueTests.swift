@@ -205,3 +205,43 @@ extension JobQueueTests {
         await queue.shutdown()
     }
 }
+extension JobQueueTests {
+    func testStagedAdmissionUsesMeasuredGrowthInsteadOfWholePeak() async throws {
+        let resources = MutableResources(); resources.change { $0.available = 8 << 30 }
+        let queue = queue(resources)
+        let entered = expectation(description: "Small initial allocation admitted")
+        let allocated = expectation(description: "Growth admitted only when RAM returns")
+        let job = try await queue.submit(model: "staged", operation: "load", budget: 16 << 30, staged: true) { _ in
+            entered.fulfill()
+            try await JobExecution.memoryCheckpoint?(4 << 30)
+            allocated.fulfill(); return .init(data: Data())
+        }
+        await fulfillment(of: [entered], timeout: 2)
+        // 8 GiB permits a 4 GiB step + 3.6 GiB headroom.
+        await fulfillment(of: [allocated], timeout: 2)
+        _ = try await queue.wait(job.id); await queue.shutdown()
+    }
+    func testStagedGrowthWaitsAndCancellationNeverGrantsAllocation() async throws {
+        let resources = MutableResources(); resources.change { $0.available = 5 << 30 }
+        let queue = queue(resources), entered = expectation(description: "Worker started")
+        let job = try await queue.submit(model: "staged", operation: "load", budget: 16 << 30, staged: true) { _ in
+            entered.fulfill(); try await JobExecution.memoryCheckpoint?(2 << 30)
+            XCTFail("Allocation exceeds available RAM after headroom"); return .init(data: Data())
+        }
+        await fulfillment(of: [entered], timeout: 2)
+        try await Task.sleep(for: .milliseconds(20))
+        let info = try await queue.job(job.id); XCTAssertEqual(info.state, .waitingForResources)
+        try await queue.cancel(job.id); await queue.shutdown()
+    }
+    func testStagedGrowthStillRejectsPressureAndUnknownBudgets() async throws {
+        let resources = MutableResources(); resources.change { $0.pressure = 2 }
+        let queue = queue(resources, wait: 0.03)
+        for budget: Int64? in [nil, 16 << 30] {
+            let job = try await queue.submit(model: "staged", operation: "load", budget: budget, staged: true) { _ in
+                XCTFail("Unsafe staged admission"); return .init(data: Data())
+            }
+            do { _ = try await queue.wait(job.id); XCTFail("Must wait safely") } catch {}
+        }
+        await queue.shutdown()
+    }
+}

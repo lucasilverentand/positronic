@@ -106,6 +106,14 @@ public actor RealtimeSession {
                 if next < .now { next = .now }
                 try await ContinuousClock().sleep(until: next)
             }
+            // Let the client finish the final bounded playback before closing
+            // its transport; an acknowledgement can otherwise race socket close.
+            let drainDeadline = ContinuousClock.now + .seconds(2)
+            while !closed && acknowledged < sequence {
+                try Task.checkCancellation()
+                guard ContinuousClock.now < drainDeadline else { throw ModelAPIError.unavailable("Playback did not finish within two seconds.") }
+                try await Task.sleep(for: .milliseconds(10))
+            }
             ready = false; input = []; await backend.end()
             try Task.checkCancellation()
             if closed { throw CancellationError() }
@@ -133,7 +141,7 @@ public struct RealtimeService: Sendable {
     }) { self.jobs = jobs; self.backend = backend; self.validate = validate }
     public func submit(_ configuration: RealtimeConfiguration, owner: UUID? = nil, session: RealtimeSession) async throws -> ModelJob {
         try configuration.validate(); try await validate(configuration.model)
-        return try await jobs.submit(model: configuration.model, operation: "realtime", owner: owner, budget: AudioCatalog.budget(configuration.model)) { _ in
+        return try await jobs.submit(model: configuration.model, operation: "realtime", owner: owner, budget: AudioCatalog.realtimeBudget(seconds: configuration.maxDurationSeconds), staged: true, profile: AudioCatalog.profileContext(configuration.model, seconds: Double(configuration.maxDurationSeconds))) { _ in
             try await session.run(configuration)
             return try .json(["status": "ended"])
         }

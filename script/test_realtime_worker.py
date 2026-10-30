@@ -20,7 +20,9 @@ class RealtimeWorkerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder); mocks = root / "mocks"; (mocks / "mlx").mkdir(parents=True)
             (mocks / "mlx/__init__.py").write_text("")
-            (mocks / "mlx/core.py").write_text("def clear_cache(): pass\ndef reset_peak_memory(): pass\ndef get_peak_memory(): return 64\ndef get_active_memory(): return 64\n")
+            (mocks / "mlx/core.py").write_text("def clear_cache(): pass\ndef reset_peak_memory(): pass\ndef get_peak_memory(): return 64\ndef get_active_memory(): return 64\ndef set_cache_limit(size): pass\ndef eval(*args): pass\n")
+            (mocks / "mlx/nn.py").write_text("class Module: pass\n")
+            (mocks / "mlx/utils.py").write_text("def tree_flatten(value): return []\n")
             (mocks / "mlx_vlm.py").write_text('''
 import socket
 import numpy as np
@@ -36,12 +38,14 @@ class Session:
                 SimpleNamespace(kind="user_transcript_delta", delta="Hi"),
                 SimpleNamespace(kind="audio", samples=np.zeros(1764,dtype=np.float32))]
 class Parent:
-    def create_streaming_session(self, system_prompt, max_streaming_seconds):
+    def create_streaming_session(self, system_prompt, max_streaming_seconds, profile=False):
         assert len(system_prompt.encode()) <= 1024 and 10 <= max_streaming_seconds <= 600
         return Session()
 class Model:
+    def parameters(self): return {}
     def create_session(self, processor): return Parent()
-def load(path, trust_remote_code):
+def load(path, trust_remote_code, lazy):
+    assert lazy is True
     assert trust_remote_code is False
     # The production worker must disable networking even during model load.
     try: socket.create_connection(("127.0.0.1",1))
@@ -60,7 +64,11 @@ def load(path, trust_remote_code):
         import base64
         result = self.run_worker([
             {"operation":"realtime_start","model":MODEL,"instructions":"Be brief.","seconds":300},
+            {"operation":"memory_grant"},
+            {"operation":"memory_grant"},
+            {"operation":"memory_grant"},
             {"operation":"realtime_step","model":MODEL,"audio":base64.b64encode(bytes(2560)).decode()},
+            {"operation":"memory_grant"},
             {"operation":"shutdown"}])
         self.assertTrue(result[-1]["ok"])
         events = result[-1]["events"]
@@ -74,7 +82,7 @@ def load(path, trust_remote_code):
             {"operation":"realtime_start","instructions":"PRIVATE","seconds":601},
             {"operation":"realtime_step","audio":"PRIVATE"},
         ]:
-            result = self.run_worker([{**bad,"model":MODEL},{"operation":"shutdown"}])
+            result = self.run_worker([{**bad,"model":MODEL},{"operation":"memory_grant"},{"operation":"shutdown"}])
             self.assertFalse(result[-1]["ok"])
             self.assertNotIn("PRIVATE",json.dumps(result))
 

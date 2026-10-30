@@ -135,9 +135,20 @@ clients. Network binding and API key behavior match the existing API.
 
 ## Resource and ownership contract
 
-Each session owns one FIFO inference job and a conservative **16 GiB model budget**
-for quantized weights, perception/LLM/TTS/codec caches, decoding and Python/runtime
-overhead. System headroom is added by the existing atomic scheduler. No other
+Each session owns one FIFO inference job. Its monitored ceiling starts with the
+installed weight bytes, 2.25 GiB for runtime/activation/decoding overhead, and
+4 MiB per second of requested duplex context. A 16 GiB fallback applies when
+installed asset metadata is unavailable. The ceiling is checked against actual
+owned memory use, not demanded in full before the first allocation.
+
+The managed worker loads lazily, requests scheduler permission before evaluating
+small weight groups, and checks again before session initialization and each live
+step. Initial admission reserves a 512 MiB loading step plus system headroom.
+Denied growth waits safely; normal pressure, low swap activity, thermal/CPU and
+disk checks remain enforced. Jobs distinguishes the next allocation requirement
+from the estimated full peak. MLX's allocator memory-limit API is advisory; it is
+not used as a hard safety boundary. The worker's reusable allocator cache is
+limited to 128 MiB. System headroom is added by the existing atomic scheduler. No other
 inference or explicit Load runs alongside it; other jobs remain queued.
 
 Admission requires normal memory pressure, low swap traffic, adequate RAM after
@@ -183,7 +194,7 @@ swift test --jobs 2 --filter LiveRealtimeTests.testNativeDuplexConversationOverS
 ```
 
 The opt-in check establishes a 30-second swap window, applies the production
-16 GiB admission budget, creates two spoken prompts locally, and connects the
+staged admission and the measured-memory ceiling, creates two spoken prompts locally, and connects the
 real Swift client to an authenticated temporary instance of the production router.
 It streams live-paced PCM, interrupts the first answer, asks a follow-up question,
 saves generated WAV audio and transcribes that output locally. A telemetry receipt
@@ -191,3 +202,32 @@ records pressure, memory, disk, swap activity and worker RSS. The live stream is
 bounded to 40 seconds and the whole attempt has a three-minute deadline. Inference
 never starts if admission is blocked; a resource skip is not a conversation pass.
 Temporary keys and API allowlists do not change the operator's configuration.
+
+## Learning from model runs
+
+Positronic stores aggregate resource observations in its private
+`resource-profiles.json`: peak owned memory, completed/failed/cancelled counts,
+processed context and live-frame processing time. The model's detail pane shows
+observed peaks and frame timings. No prompt, transcript, audio or API key is saved
+in this profile store.
+
+Observations are separated by model revision, runtime/dependency identity and
+worker implementation, and operation. Three completed runs with a sufficiently long observed context can
+supply a future sizing estimate, retaining 25% plus 512 MiB above the largest
+successful peak and an installed-weight floor. Short runs do not establish memory
+requirements for longer conversations. A later failure suspends downward tuning;
+failed observed peaks can only raise the ceiling. Incomplete runtime observations
+are displayed but never used to lower a budget. Blocked jobs with no measured work
+are not sizing evidence. Live pressure/swap/disk checks always apply regardless of
+learned estimates. Stores with invalid content are preserved rather than replaced.
+
+The pinned worker restores checkpoint BF16 precision at the ASR encoder and TTS
+input boundaries, avoiding unintended FP32 promotion. FP32 preprocessing, sampling
+noise and required SSM state remain intact. Small feed-forward graphs and the full
+fixed ASR attention window are compiled with numerical checks and an original-path
+fallback. Sampling explicitly advances MLX random state. The causal speech encoder
+warms on silence before `session.ready`; this does not advance conversation output.
+
+After input commit, final playback acknowledgements have a bounded two-second
+drain before `session.done` and transport closure. A slow or missing playback
+acknowledgement fails safely rather than accumulating audio.

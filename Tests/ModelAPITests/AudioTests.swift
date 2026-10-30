@@ -106,3 +106,24 @@ extension AudioTests {
         let next=try await budget.reserve(150 << 20);await budget.release(next)
     }
 }
+extension AudioTests {
+    func testWorkerRepliesArriveBeforePipeCloseAndRetainFollowingLines() async throws {
+        let pipe = Pipe(), reader = AudioReplyReader(pipe.fileHandleForReading)
+        defer { try? pipe.fileHandleForReading.close(); try? pipe.fileHandleForWriting.close() }
+        let ready = expectation(description: "First line arrives while worker pipe remains open")
+        let first = Task.detached { let line = try reader.line(); ready.fulfill(); return line }
+        try pipe.fileHandleForWriting.write(contentsOf: Data("first\nsec".utf8))
+        await fulfillment(of: [ready], timeout: 1)
+        let value = try await first.value; XCTAssertEqual(value, Data("first".utf8))
+        try pipe.fileHandleForWriting.write(contentsOf: Data("ond\nthird\n".utf8))
+        let second = try reader.line(), third = try reader.line()
+        XCTAssertEqual(second, Data("second".utf8)); XCTAssertEqual(third, Data("third".utf8))
+    }
+    func testWorkerOversizedReplyIsRejectedWithoutBufferingAnotherMessage() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try Data(repeating: 97, count: 64001).write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let handle = try FileHandle(forReadingFrom: file); defer { try? handle.close() }
+        XCTAssertThrowsError(try AudioReplyReader(handle).line())
+    }
+}

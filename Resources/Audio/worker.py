@@ -27,6 +27,14 @@ loaded = None
 loaded_id = None
 duplex = None
 
+def memory_checkpoint(size):
+    # The MLX memory-limit API is advisory. Ask the supervising scheduler before
+    # materializing weights or growing the live graph instead of trusting a cap.
+    emit({"event":"memory_request", "bytes":int(size)})
+    line = sys.stdin.readline(64001)
+    if len(line) > 64000 or json.loads(line).get("operation") != "memory_grant":
+        raise RuntimeError("Memory allocation was not admitted")
+
 def safe_job_file(value):
     file = Path(value).resolve()
     file.relative_to(root.parent / "Jobs")
@@ -46,9 +54,23 @@ def load(model):
         from mlx_audio.tts.utils import load_model
     elif model == "nemotron-voicechat-11b-4bit":
         from mlx_vlm import load as load_vlm
-        loaded = load_vlm(receipt["path"], trust_remote_code=False)
+        memory_checkpoint(512 * 1024**2)
+        mx.set_cache_limit(128 * 1024**2)
+        loaded = load_vlm(receipt["path"], trust_remote_code=False, lazy=True)
+        from mlx.utils import tree_flatten
+        group = []; total = 0
+        for _, value in tree_flatten(loaded[0].parameters()):
+            if group and total + value.nbytes > 64 * 1024**2:
+                memory_checkpoint(total * 2 + 64 * 1024**2); mx.eval(*group); group = []; total = 0
+            group.append(value); total += value.nbytes
+        if group:
+            memory_checkpoint(total * 2 + 64 * 1024**2); mx.eval(*group)
     else: raise ValueError("Unsupported audio model")
     if model != "nemotron-voicechat-11b-4bit": loaded = load_model(receipt["path"])
+    if model == "nemotron-voicechat-11b-4bit":
+        memory_checkpoint(256 * 1024**2)
+        from realtime_optimizations import optimize_model
+        optimize_model(loaded[0])
     loaded_id = model
     emit({"event":"loaded", "model":model,"memory":mx.get_active_memory()})
 
@@ -68,14 +90,18 @@ for line in sys.stdin:
             if model != "nemotron-voicechat-11b-4bit": raise ValueError("Wrong realtime model")
             instructions = request["instructions"]; seconds = request["seconds"]
             if len(instructions.encode()) > 1024 or not 10 <= seconds <= 600: raise ValueError("Invalid realtime limits")
+            memory_checkpoint(512 * 1024**2)
             network, processor = loaded
-            duplex = network.create_session(processor).create_streaming_session(system_prompt=instructions, max_streaming_seconds=seconds)
+            duplex = network.create_session(processor).create_streaming_session(system_prompt=instructions, max_streaming_seconds=seconds, profile=True)
+            from realtime_optimizations import warm_perception
+            warm_perception(duplex, memory_checkpoint)
             if duplex.input_sample_rate != 16000 or duplex.output_sample_rate != 22050 or duplex.frame_samples != 1280: raise ValueError("Unsupported model audio format")
             emit({"ok":True,"memory":mx.get_peak_memory()}); continue
         if operation == "realtime_step":
             if model != "nemotron-voicechat-11b-4bit" or duplex is None: raise ValueError("No realtime session")
             pcm = base64.b64decode(request["audio"],validate=True)
             if len(pcm) != 2560: raise ValueError("Invalid PCM frame")
+            memory_checkpoint(128 * 1024**2)
             samples = np.frombuffer(pcm,dtype="<i2").astype(np.float32)/32768.0
             events = []
             for event in duplex.push_audio(samples,sample_rate=16000):
@@ -89,7 +115,8 @@ for line in sys.stdin:
                     if len(delta.encode()) > 4096: raise ValueError("Oversized text delta")
                     events.append({"type":"response.text.delta" if event.kind == "assistant_text_delta" else "input_audio.transcript.delta","delta":delta})
                 # Function-channel output is untrusted model data, never executed.
-            emit({"ok":True,"events":events,"memory":mx.get_peak_memory()}); continue
+            timings = vars(duplex.profile.frames[-1]) if getattr(duplex,"profile",None) and duplex.profile.frames else {}
+            emit({"ok":True,"events":events,"timing":timings,"memory":mx.get_peak_memory()}); continue
         language = request.get("language", "en")
         if language not in ["en", "nl"]: raise ValueError("Unsupported language")
         output = safe_job_file(request["output"])

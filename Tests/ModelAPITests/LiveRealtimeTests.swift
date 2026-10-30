@@ -32,9 +32,11 @@ private actor LiveConversationReceipt {
     var job: UUID?
     var samples: [Sample] = []
     var events: [String] = []
+    var errors: [String] = []
     let start = Date()
     func record(_ event: RealtimeEvent) {
         events.append(event.type)
+        if event.type == "session.error", let message = event.message { errors.append(message) }
         if let id = event.job?.id { job = id }
         if event.type == "response.text.delta" { assistant += event.delta ?? "" }
         if event.type == "input_audio.transcript.delta" { user += event.delta ?? "" }
@@ -45,8 +47,8 @@ private actor LiveConversationReceipt {
     func markInterrupted() { interrupted = true }
     func hasResponse() -> Bool { assistant.trimmingCharacters(in: .whitespacesAndNewlines).count > 8 }
     func save(to folder: URL, transcript: Transcript?) throws {
-        struct Receipt: Encodable { var assistant: String; var user: String; var interrupted: Bool; var clearEvents: Int; var audioBytes: Int; var samples: [Sample]; var events: [String]; var outputTranscript: Transcript? }
-        let value = Receipt(assistant: assistant, user: user, interrupted: interrupted, clearEvents: cleared, audioBytes: audio.count, samples: samples, events: events, outputTranscript: transcript)
+        struct Receipt: Encodable { var assistant: String; var user: String; var interrupted: Bool; var clearEvents: Int; var audioBytes: Int; var samples: [Sample]; var events: [String]; var outputTranscript: Transcript?; var errors: [String] }
+        let value = Receipt(assistant: assistant, user: user, interrupted: interrupted, clearEvents: cleared, audioBytes: audio.count, samples: samples, events: events, outputTranscript: transcript, errors: errors)
         try JSONEncoder().encode(value).write(to: folder.appendingPathComponent("receipt.json"))
     }
 }
@@ -63,7 +65,9 @@ extension LiveRealtimeTests {
             if !(await runtime.loaded()).contains(where: { $0.id == model }) { await runtime.stop() }
         }, cancelWorker: { await runtime.stop() }, footprint: {
             try await runtime.memory() + ResourceMonitor.residentBytes(of: ProcessInfo.processInfo.processIdentifier)
-        })
+        }, residency: { model in
+            await runtime.loaded().first { $0.id == model }?.memoryBytes ?? 0
+        }, profiles: ModelResourceProfiles(), context: { model, _ in AudioCatalog.profileContext(model) })
         let monitor = Task {
             while !Task.isCancelled {
                 do { await receipt.sample(try ResourceMonitor.snapshot(), worker: try await runtime.memory()); try await Task.sleep(for: .seconds(1)) }
@@ -81,16 +85,22 @@ extension LiveRealtimeTests {
         do {
             // Establish a full swap-activity window before any inference allocation.
             for _ in 0..<30 { _ = try ResourceMonitor.snapshot(); try await Task.sleep(for: .seconds(1)) }
-            let status = ResourceMonitor.restriction(try ResourceMonitor.snapshot(), budget: AudioCatalog.budget(RealtimeConfiguration.modelID), diskBytes: 4 << 20)
+            let status = ResourceMonitor.restriction(try ResourceMonitor.snapshot(), budget: 512 << 20, diskBytes: 4 << 20)
             if let reason = status.reason { throw XCTSkip("Physical-Mac admission blocked: " + reason) }
             let audio = AudioService(runtime: runtime, queue: queue, enabled: AudioCatalog.ids)
             let prompts = ["Hi. Tell me about the ocean in a few sentences.", "Stop. What color is a ripe banana? Just say the color."]
             var spoken: [Data] = []
             for (index, prompt) in prompts.enumerated() {
-                let job = try await audio.submitSpeech(.init(input: prompt))
-                let result = try await queue.wait(job.id)
-                let file = try XCTUnwrap(result.file)
                 let copy = output.appendingPathComponent("input-\(index+1).wav")
+                let file: URL
+                if let fixtureRoot = ProcessInfo.processInfo.environment["POSITRONIC_LIVE_REALTIME_FIXTURES"] {
+                    file = URL(fileURLWithPath: fixtureRoot).appendingPathComponent("input-\(index+1).wav")
+                    try AudioIO.validate(file)
+                } else {
+                    let job = try await audio.submitSpeech(.init(input: prompt))
+                    let result = try await queue.wait(job.id)
+                    file = try XCTUnwrap(result.file)
+                }
                 if FileManager.default.fileExists(atPath: copy.path) { try FileManager.default.removeItem(at: copy) }
                 try FileManager.default.copyItem(at: file, to: copy)
                 let normalized = AudioCatalog.jobsDirectory.appendingPathComponent(UUID().uuidString + ".wav")

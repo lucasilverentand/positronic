@@ -41,6 +41,9 @@ struct ModelDetailView: View {
                 if store.modelOperation == installed.id { ProgressView("Updating model…").controlSize(.small) }
             }
         }.frame(maxWidth: .infinity, alignment: .leading)
+        .task {
+            while !Task.isCancelled { await store.refreshResourceProfiles(); do { try await Task.sleep(for: .seconds(2)) } catch { return } }
+        }
         .confirmationDialog("Remove \(model.id)?", isPresented: $confirmingRemoval, titleVisibility: .visible) {
             if let installed { Button("Remove from Mac", role: .destructive) { Task { await store.manage(.remove, model: installed) } } }
             Button("Cancel", role: .cancel) {}
@@ -53,6 +56,14 @@ struct ModelDetailView: View {
             if let size = installed.sizeBytes { LabeledContent("Download", value: ByteCountFormatter.string(fromByteCount: size, countStyle: .file)) }
             LabeledContent("Memory", value: !memoryKnown ? "Unavailable" : loaded == nil ? "Not loaded" : "Loaded")
             if let bytes = loaded?.memoryBytes { LabeledContent("In use", value: ByteCountFormatter.string(fromByteCount: bytes, countStyle: .memory)) }
+            if let profile = store.resourceProfiles.first(where: { $0.model == installed.id && $0.revision == installed.digest }) {
+                if profile.successfulPeakBytes > 0 { LabeledContent("Observed peak", value: ByteCountFormatter.string(fromByteCount: profile.successfulPeakBytes, countStyle: .memory)) }
+                if profile.successfulPeakBytes == 0, profile.failedPeakBytes > 0 { LabeledContent("Stopped at", value: ByteCountFormatter.string(fromByteCount: profile.failedPeakBytes, countStyle: .memory)); Text("Partial run; full requirement is not yet measured.").font(.caption).foregroundStyle(.secondary) }
+                LabeledContent("Completed runs", value: "\(profile.successfulRuns)")
+                if let milliseconds = profile.averageStepMilliseconds { LabeledContent("Audio processing", value: String(format: "%.0f ms per 80 ms frame", milliseconds)) }
+                if profile.failedRuns + profile.cancelledRuns > 0 { Text("\(profile.failedRuns) failed · \(profile.cancelledRuns) cancelled attempts are kept separate.").font(.caption).foregroundStyle(.secondary) }
+            }
+            if !store.resourceProfileMessage.isEmpty { Text(store.resourceProfileMessage).font(.caption).foregroundStyle(.secondary) }
             if !installed.detail.isEmpty { Text(installed.detail).font(.caption).foregroundStyle(.secondary) }
         }.font(.callout)
         Button {

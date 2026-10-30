@@ -36,7 +36,6 @@ final class LiveLifecycleTests: XCTestCase, @unchecked Sendable {
                 case .transcription, .speech, .conversation: fatalError("Not an Ollama model")
                 case .generation: enabled.generationModels.append(alias)
                 case .decision: enabled.decisionModels.append(alias)
-                case .transcription, .speech, .conversation: fatalError("Not an Ollama model")
                 case .embedding: enabled.embeddingModels.append(alias)
                 }
                 let engine = try LocalModelEngine(configuration: enabled)

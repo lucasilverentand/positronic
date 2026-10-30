@@ -6,6 +6,8 @@ public actor AudioRuntime {
     private var process: Process?
     private var input: FileHandle?
     private var output: FileHandle?
+    private var replies: AudioReplyReader?
+    private var rpcBusy = false
     private var resident: String?
     private var peak: Int64 = 0
     private var idleTask: Task<Void, Never>?
@@ -51,7 +53,7 @@ public actor AudioRuntime {
         task.arguments = ["-u", AudioCatalog.resources.appendingPathComponent("worker.py").path, AudioCatalog.directory.path]
         task.environment = ["HOME":AudioCatalog.directory.path,"PATH":"/usr/bin:/bin", "PYTHONNOUSERSITE":"1","PYTHONDONTWRITEBYTECODE":"1","HF_HOME":AudioCatalog.directory.appendingPathComponent("huggingface").path,"HF_HUB_OFFLINE":"1","TRANSFORMERS_OFFLINE":"1", "OMP_NUM_THREADS":"2", "OPENBLAS_NUM_THREADS":"2", "TOKENIZERS_PARALLELISM":"false"]
         task.standardInput = incoming; task.standardOutput = outgoing; task.standardError = FileHandle.nullDevice
-        try task.run(); process = task; input = incoming.fileHandleForWriting; output = outgoing.fileHandleForReading
+        try task.run(); process = task; input = incoming.fileHandleForWriting; output = outgoing.fileHandleForReading; replies = AudioReplyReader(output!)
     }
     public func stop() async {
         idleTask?.cancel(); idleTask = nil
@@ -60,7 +62,7 @@ public actor AudioRuntime {
         if owned?.isRunning == true { owned?.terminate() }
         for _ in 0..<50 where owned?.isRunning == true { try? await Task.sleep(for: .milliseconds(100)) }
         if let owned, owned.isRunning { kill(owned.processIdentifier, SIGKILL) }
-        try? output?.close(); output = nil
+        try? output?.close(); output = nil; replies = nil
     }
     public func load(_ model: String, progress: @escaping @Sendable (JSONValue) async -> Void = { _ in }) async throws {
         _ = try await rpc(["operation":.string("load"),"model":.string(model)], progress: progress)
@@ -84,34 +86,48 @@ public actor AudioRuntime {
     }
     public func stepRealtime(_ pcm: Data) async throws -> [RealtimeEvent] {
         guard pcm.count == 2560 else { throw ModelAPIError.invalid("Invalid realtime PCM frame.") }
+        let started = ContinuousClock.now
         let result = try await rpc(["operation": .string("realtime_step"), "model": .string(RealtimeConfiguration.modelID), "audio": .string(pcm.base64EncodedString())], progress: { _ in })
+        let elapsed = started.duration(to: .now).components
+        let seconds = Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
+        var stages = result.object?["timing"]?.object?.compactMapValues(\.numberValue) ?? [:]
+        if let total = stages["total_ms"] { stages["transport_ms"] = max(0, seconds * 1000 - total) }
+        stages.removeValue(forKey: "frame_index"); stages.removeValue(forKey: "total_ms")
+        await JobExecution.metrics?.step(seconds: seconds, contextSeconds: 0.08, stages: stages)
         guard let value = result.object?["events"] else { throw ModelAPIError.invalid("Missing realtime events.") }
         return try JSONDecoder().decode([RealtimeEvent].self, from: JSONEncoder().encode(value))
     }
     private func rpc(_ body: [String: JSONValue], progress: @escaping @Sendable (JSONValue) async -> Void) async throws -> JSONValue {
+        guard !rpcBusy else { throw ModelAPIError.unavailable("The audio worker is already serving a request.") }
+        rpcBusy = true; defer { rpcBusy = false }
         idleTask?.cancel(); idleTask = nil
-        guard let model = body["model"]?.string, AudioCatalog.installed().contains(where: { $0.id == model }) else { throw ModelAPIError.unavailable("Download this audio model explicitly before loading it.") }
-        if model == RealtimeConfiguration.modelID, !AudioCatalog.realtimeReady { throw ModelAPIError.unavailable("Prepare the updated audio runtime explicitly first.") }
-        try start()
-        guard let input, let output else { throw ModelAPIError.unavailable("The audio worker is unavailable.") }
+        guard let model = body["model"]?.string else { throw ModelAPIError.invalid("Supply an audio model.") }
+        if process?.isRunning != true || resident != model {
+            guard AudioCatalog.installed().contains(where: { $0.id == model }) else { throw ModelAPIError.unavailable("Download this audio model explicitly before loading it.") }
+            if model == RealtimeConfiguration.modelID, !AudioCatalog.realtimeReady { throw ModelAPIError.unavailable("Prepare the updated audio runtime explicitly first.") }
+            try start()
+        }
+        // The queue excludes runtime/model management while this resident model
+        // serves a session. Re-reading receipts and hashing the dependency lock
+        // for every 80 ms frame adds disk work without validating resident bytes.
+        guard let input, let replies else { throw ModelAPIError.unavailable("The audio worker is unavailable.") }
         let owned = process
         let data = try JSONEncoder().encode(body) + Data([10]); try input.write(contentsOf: data)
         do {
             return try await withTaskCancellationHandler {
                 while true {
-                    let line = try await Task.detached(priority: .utility) {
-                        var bytes = Data()
-                        while true {
-                            guard let next = try output.read(upToCount: 1), !next.isEmpty else { throw ModelAPIError.unavailable("The local audio worker stopped unexpectedly.") }
-                            if next[0] == 10 { return bytes }
-                            guard bytes.count < 64_000 else { throw ModelAPIError.limit("Audio worker reply exceeds its limit.") }
-                            bytes.append(next)
-                        }
-                    }.value
+                    let line = try await Task.detached(priority: .utility) { try replies.line() }.value
                     try Task.checkCancellation()
                     let value = try JSONDecoder().decode(JSONValue.self, from: line)
                     if let memory = value.object?["memory"]?.numberValue, memory.isFinite, memory >= 0, memory < 1e12 { peak = Int64(memory) }
-                    if value.object?["event"]?.string == "loaded" { resident = model }
+                    if value.object?["event"]?.string == "memory_request" {
+                        guard let check = JobExecution.memoryCheckpoint, let bytes = value.object?["bytes"]?.numberValue.flatMap(Int64.init(exactly:)) else { throw ModelAPIError.unavailable("This model needs a staged scheduler reservation.") }
+                        try await check(bytes); try Task.checkCancellation()
+                        try input.write(contentsOf: Data("{\"operation\":\"memory_grant\"}\n".utf8))
+                        continue
+                    }
+                    if value.object?["event"]?.string == "loading" { await JobExecution.phase?(.loading) }
+                    if value.object?["event"]?.string == "loaded" { resident = model; await JobExecution.phase?(.running) }
                     if value.object?["event"] != nil { await progress(value); continue }
                     guard value.object?["ok"]?.bool == true else { throw ModelAPIError.unavailable("Local audio failed. Check the model assets, language and input audio.") }
                     idleTask = Task { do { try await Task.sleep(for: .seconds(300)); await self.stop() } catch {} }
@@ -119,5 +135,29 @@ public actor AudioRuntime {
                 }
             } onCancel: { if owned?.isRunning == true { owned?.terminate() } }
         } catch { await stop(); throw error }
+    }
+}
+
+/// Blocking reads stay on a utility task. Read whole pipe chunks, not one syscall
+/// per byte of every PCM payload; retain any following RPC lines without loss.
+final class AudioReplyReader: @unchecked Sendable {
+    private let handle: FileHandle
+    private let lock = NSLock()
+    private var pending = Data()
+    private var buffer = [UInt8](repeating: 0, count: 65536)
+    init(_ handle: FileHandle) { self.handle = handle }
+    func line() throws -> Data {
+        lock.lock(); defer { lock.unlock() }
+        while true {
+            if let end = pending.firstIndex(of: 10) {
+                guard pending.distance(from: pending.startIndex, to: end) <= 64000 else { throw ModelAPIError.limit("Audio worker reply exceeds its limit.") }
+                let line = Data(pending[..<end]); pending.removeSubrange(...end); return line
+            }
+            guard pending.count <= 64000 else { throw ModelAPIError.limit("Audio worker reply exceeds its limit.") }
+            let count = buffer.withUnsafeMutableBytes { Darwin.read(handle.fileDescriptor, $0.baseAddress, $0.count) }
+            if count < 0 && errno == EINTR { continue }
+            guard count > 0 else { throw ModelAPIError.unavailable("The local audio worker stopped unexpectedly.") }
+            pending.append(contentsOf: buffer.prefix(count))
+        }
     }
 }

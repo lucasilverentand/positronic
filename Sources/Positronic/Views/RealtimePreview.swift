@@ -18,7 +18,7 @@ struct RealtimePreview: View {
                     if preview.busy { ProgressView().controlSize(.small) }
                 }
                 Text(preview.status).font(.caption).foregroundStyle(.secondary)
-                if !available { Text("Prepare the updated audio runtime in Settings, then explicitly download this model. The shared queue checks its 16 GiB memory budget before loading.").font(.caption).foregroundStyle(.secondary) }
+                if !available { Text("Prepare the updated audio runtime in Settings, then explicitly download this model. The shared queue checks resources as the model loads and learns from measured runs.").font(.caption).foregroundStyle(.secondary) }
                 if !preview.userText.isEmpty { Text("You").font(.caption.bold()); Text(preview.userText).textSelection(.enabled) }
                 if !preview.assistantText.isEmpty { Text("Model").font(.caption.bold()); Text(preview.assistantText).textSelection(.enabled) }
                 Text("Local preview does not enable API access. Microphone capture starts only after admission. Headphones help avoid echo.").font(.caption).foregroundStyle(.secondary)
