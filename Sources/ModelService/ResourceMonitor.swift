@@ -76,7 +76,11 @@ public enum ResourceMonitor {
         else if snapshot.cpu > 0.90 { reason = "Waiting for CPU capacity." }
         else if snapshot.available < required { let shortfall = ByteCountFormatter.string(fromByteCount: required - snapshot.available, countStyle: .memory)
             reason = "Waiting for \(shortfall) more estimated RAM after counting reclaimable cache and preserving system headroom." }
-        else if snapshot.disk < diskReserve + diskBytes { reason = "Waiting for disk space; 25 GiB must remain available." }
+        else if snapshot.disk < diskReserve + diskBytes {
+            let shortfall = ByteCountFormatter.string(fromByteCount: diskReserve + diskBytes - snapshot.disk, countStyle: .memory)
+            let available = ByteCountFormatter.string(fromByteCount: snapshot.disk, countStyle: .memory)
+            reason = "Waiting for \(shortfall) more disk space (\(available) available); 25 GiB must remain after projected writes."
+        }
         return .init(availableMemoryBytes: snapshot.available, requiredMemoryBytes: required, availableDiskBytes: snapshot.disk, reason: reason, memory: snapshot.memory, systemHeadroomBytes: reserve, swapActivityBytes: snapshot.swapActivityBytes)
     }
     public static func residentBytes(of pid: Int32) throws -> Int64 {

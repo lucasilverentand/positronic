@@ -1,13 +1,17 @@
 import Foundation
 import Observation
 import AVFoundation
+import OSLog
 import ModelAPI
 import ModelService
 
 @MainActor @Observable
 final class RealtimePreviewStore {
     var instructions = "Be helpful and concise."
-    var status = "English · built-in LLM and voice · up to five minutes"
+    private static let log = Logger(subsystem: "nl.lucasilverentand.mac-model-api", category: "RealtimePreview")
+    var status = "English · built-in LLM and voice · up to five minutes" {
+        didSet { Self.log.info("Conversation status: \(self.status, privacy: .public)") }
+    }
     var userText = ""
     var assistantText = ""
     var busy = false
@@ -21,11 +25,13 @@ final class RealtimePreviewStore {
     init(jobs: JobQueue, runtime: AudioRuntime) { self.jobs = jobs; self.runtime = runtime }
     func start() {
         guard !busy else { return }; busy = true; userText = ""; assistantText = ""
+        status = "Requesting microphone access…"
         task = Task {
             do {
                 let allowed = await AVCaptureDevice.requestAccess(for: .audio)
                 guard allowed else { throw ModelAPIError.unavailable("Microphone access denied. Enable Positronic in System Settings → Privacy & Security → Microphone.") }
                 try Task.checkCancellation()
+                status = "Preparing conversation…"
                 let service = RealtimeService(jobs: jobs, backend: LocalRealtimeBackend(runtime: runtime))
                 let owner = self
                 let conversation = service.makeSession { [weak owner] event in try await owner?.event(event) }
@@ -55,8 +61,9 @@ final class RealtimePreviewStore {
     private func event(_ event: RealtimeEvent) async throws {
         switch event.type {
         case "session.ready":
-            status = "Listening and speaking · Stop ends the session"
+            status = "Starting microphone and playback…"
             let stream = try io.start()
+            status = "Listening and speaking · Stop ends the session"
             capture = Task { [weak self] in
                 do { for try await frame in stream { try await self?.session?.receive(.init("input_audio.append", audio: frame.base64EncodedString())) } }
                 catch { self?.status = error.localizedDescription; self?.stop() }
