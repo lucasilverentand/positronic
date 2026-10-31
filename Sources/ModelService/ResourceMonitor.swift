@@ -17,7 +17,9 @@ public struct ResourceSnapshot: Sendable {
     }
 }
 public enum ResourceMonitor {
+    // Downloads keep staging headroom; installed inference only reserves temporary writes.
     public static let diskReserve: Int64 = 25 * 1024 * 1024 * 1024
+    public static let inferenceDiskReserve: Int64 = 2 * 1024 * 1024 * 1024
     public static func snapshot(at directory: URL = PrivateFiles.directory) throws -> ResourceSnapshot {
         var vm = vm_statistics64(); var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64>.size / MemoryLayout<integer_t>.size)
         let status = withUnsafeMutablePointer(to: &vm) { pointer in
@@ -76,10 +78,10 @@ public enum ResourceMonitor {
         else if snapshot.cpu > 0.90 { reason = "Waiting for CPU capacity." }
         else if snapshot.available < required { let shortfall = ByteCountFormatter.string(fromByteCount: required - snapshot.available, countStyle: .memory)
             reason = "Waiting for \(shortfall) more estimated RAM after counting reclaimable cache and preserving system headroom." }
-        else if snapshot.disk < diskReserve + diskBytes {
-            let shortfall = ByteCountFormatter.string(fromByteCount: diskReserve + diskBytes - snapshot.disk, countStyle: .memory)
+        else if snapshot.disk < inferenceDiskReserve + diskBytes {
+            let shortfall = ByteCountFormatter.string(fromByteCount: inferenceDiskReserve + diskBytes - snapshot.disk, countStyle: .memory)
             let available = ByteCountFormatter.string(fromByteCount: snapshot.disk, countStyle: .memory)
-            reason = "Waiting for \(shortfall) more disk space (\(available) available); 25 GiB must remain after projected writes."
+            reason = "Waiting for \(shortfall) more disk space (\(available) available); 2 GiB must remain after projected temporary writes."
         }
         return .init(availableMemoryBytes: snapshot.available, requiredMemoryBytes: required, availableDiskBytes: snapshot.disk, reason: reason, memory: snapshot.memory, systemHeadroomBytes: reserve, swapActivityBytes: snapshot.swapActivityBytes)
     }
@@ -89,9 +91,9 @@ public enum ResourceMonitor {
         guard proc_pidinfo(pid, PROC_PIDTASKINFO, 0, &info, size) == size else { throw ModelAPIError.unavailable("Worker memory telemetry is unavailable.") }
         return Int64(info.pti_resident_size)
     }
-    public static func requireDisk(at directory: URL, additional: Int64) throws {
+    public static func requireDisk(at directory: URL, additional: Int64, reserve: Int64 = inferenceDiskReserve) throws {
         let snapshot = try snapshot(at: directory)
-        guard snapshot.disk >= diskReserve + additional else { throw ModelAPIError.unavailable("This operation must leave 25 GiB free on the destination drive.") }
+        guard additional >= 0, reserve >= 0, additional <= Int64.max - reserve, snapshot.disk >= reserve + additional else { throw ModelAPIError.unavailable("Not enough disk space for projected writes and the destination reserve.") }
     }
 }
 

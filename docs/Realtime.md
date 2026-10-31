@@ -20,7 +20,7 @@ quality, interruption behavior or measured realtime speed on a particular Mac.
 3. Try the live preview beside the model, or enable its API access in Your models.
    A local preview does not change API access or persisted operator choices.
 
-Keep 25 GiB free after projected writes. Discover conservatively requires 10 GiB
+For downloads, keep 25 GiB free after projected writes. Installed inference uses\na separate 2 GiB floor plus projected temporary writes; RAM and swap safeguards\nremain unchanged. Discover conservatively requires 10 GiB
 of download space in addition to that reserve. The installer checks actual pinned
 asset sizes before downloading. Downloads and runtime updates are never implicit.
 Old, pinned batch-audio environments remain usable until explicitly updated.

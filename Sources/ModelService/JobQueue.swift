@@ -220,7 +220,7 @@ public actor JobQueue {
                 if let memory = try await footprint?() { await item.metrics.memory(memory) }
                 try Task.checkCancellation()
                 if entries[id]?.info.state.terminal == false {
-                    guard try probe().disk >= ResourceMonitor.diskReserve + (output.file == nil ? Int64(output.data.count) : 0) else { throw ModelAPIError.unavailable("Not enough disk space to retain the result safely.") }
+                    guard try probe().disk >= ResourceMonitor.inferenceDiskReserve + (output.file == nil ? Int64(output.data.count) : 0) else { throw ModelAPIError.unavailable("Not enough disk space to retain the result safely.") }
                     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
                     let file = directory.appendingPathComponent(id.uuidString)
                     if let source = output.file { try FileManager.default.moveItem(at: source, to: file) }

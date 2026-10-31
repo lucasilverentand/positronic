@@ -100,7 +100,10 @@ with scheduling, including on-demand loads. Jobs wait for normal memory pressure
 a model budget plus the greater of 2 GiB or 10% of physical RAM, CPU capacity and
 safe thermal conditions. Unknown budgets wait instead of guessing. Owned idle
 models can unload to make room; other applications are never interrupted.
-Downloads, uploads and output allocation must preserve 25 GiB of free disk.
+Downloads preserve 25 GiB of free disk for installation/staging. Installed model
+inference, uploads and result storage preserve 2 GiB plus their projected temporary
+writes. This disk floor does not authorize swapping; RAM and active-swap checks
+remain unchanged.
 
 Available RAM includes reusable free pages, file-backed cache and volatile
 purgeable pages. Speculative read-ahead pages are counted once. Inactive anonymous
@@ -265,6 +268,12 @@ This creates temporary aliases for generation, decision and embedding models, th
 
 Discover includes `muse-glimmer:30b`, Ollama’s approximately 18 GB Q4_K_M build. Meta reports quantized Glimmer inference on an M4 Max; it is a plausible fit for a 36 GB M4 Max at a bounded context, subject to other apps and runtime overhead. This is distinct from Muse Spark Open, which is far too large for this machine. The owned runtime uses one loaded local model and an 8192-token context setting. A local download does not add tool execution or image input to Positronic’s text-only API.
 
-The preset requires 25 GB free on the selected model drive to leave working space. Discover shows the storage restriction and the downloader checks again before starting. This guard is available when the model folder is configured; storage for an independently managed Ollama installation must be checked by its operator. Adding the preset does not download, enable or load it. Verify inference with a bounded context on the target Mac before relying on its throughput; a catalog entry does not establish a benchmark.
+The downloader requires projected model/staging space plus the 25 GiB download reserve. Discover shows the storage restriction and checks again before starting. Installed inference uses the separate 2 GiB working reserve plus projected temporary writes, with the same RAM and active-swap safeguards as other models. This guard is available when the model folder is configured; storage for an independently managed Ollama installation must be checked by its operator. Adding the preset does not download, enable or load it. Verify inference with a bounded context on the target Mac before relying on its throughput; a catalog entry does not establish a benchmark.
 
 Sources: [Ollama tags](https://ollama.com/library/muse-glimmer/tags), [Meta’s Glimmer announcement](https://research.meta.ai/blog/introducing-muse-glimmer-open-agentic-model).
+
+For a bounded check of already installed Muse weights, run
+`POSITRONIC_LIVE_MUSE=1 swift test --filter LiveMuseTests` while no other local
+model is in use. It uses the production memory/swap scheduler, a 32-token prompt
+with reasoning disabled, and unloads afterward. A resource-blocked skip is not
+an inference pass. It never downloads weights or changes API model choices.

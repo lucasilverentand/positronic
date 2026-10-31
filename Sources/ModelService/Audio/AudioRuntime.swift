@@ -20,13 +20,13 @@ public actor AudioRuntime {
         guard let process, process.isRunning else { return 0 }; return max(peak, try ResourceMonitor.residentBytes(of: process.processIdentifier))
     }
     public func prepare() async throws {
-        try ResourceMonitor.requireDisk(at: AudioCatalog.directory, additional: 3 * 1024 * 1024 * 1024)
+        try ResourceMonitor.requireDisk(at: AudioCatalog.directory, additional: 3 * 1024 * 1024 * 1024, reserve: ResourceMonitor.diskReserve)
         try await runTool(executable: URL(fileURLWithPath: "/usr/bin/python3"), arguments: [AudioCatalog.resources.appendingPathComponent("setup_runtime.py").path, "--root", AudioCatalog.directory.path])
     }
     public func download(_ model: String) async throws {
         guard AudioCatalog.runtimeReady, AudioCatalog.ids.contains(model) else { throw ModelAPIError.unavailable("Prepare the audio runtime first.") }
         if model == RealtimeConfiguration.modelID, !AudioCatalog.realtimeReady { throw ModelAPIError.unavailable("Prepare the updated audio runtime explicitly in Settings first.") }
-        try ResourceMonitor.requireDisk(at: AudioCatalog.directory, additional: (model == RealtimeConfiguration.modelID ? 10 : 4) * 1024 * 1024 * 1024)
+        try ResourceMonitor.requireDisk(at: AudioCatalog.directory, additional: (model == RealtimeConfiguration.modelID ? 10 : 4) * 1024 * 1024 * 1024, reserve: ResourceMonitor.diskReserve)
         try await runTool(executable: AudioCatalog.directory.appendingPathComponent("venv/bin/python"), arguments: [AudioCatalog.resources.appendingPathComponent("install_model.py").path, "--root", AudioCatalog.directory.path, "--model", model])
     }
     private func runTool(executable: URL, arguments: [String]) async throws {
@@ -39,7 +39,7 @@ public actor AudioRuntime {
         try await withTaskCancellationHandler {
             while task.isRunning {
                 try await Task.sleep(for: .milliseconds(200))
-                do { try ResourceMonitor.requireDisk(at: AudioCatalog.directory, additional: 0) }
+                do { try ResourceMonitor.requireDisk(at: AudioCatalog.directory, additional: 0, reserve: ResourceMonitor.diskReserve) }
                 catch { task.terminate(); throw error }
             }
             guard task.terminationStatus == 0 else { throw ModelAPIError.unavailable("Audio setup did not complete. Check storage and the explicit runtime/model download.") }

@@ -183,7 +183,7 @@ extension LiveRealtimeTests {
             XCTAssertTrue(interrupted); XCTAssertGreaterThan(clears, 1)
             XCTAssertFalse(transcript?.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
             let samples = await receipt.samples
-            XCTAssertTrue(samples.allSatisfy { $0.pressure == 1 && $0.swapActivity < ResourceMonitor.swapActivityLimit && $0.disk >= ResourceMonitor.diskReserve })
+            XCTAssertTrue(samples.allSatisfy { $0.pressure == 1 && $0.swapActivity < ResourceMonitor.swapActivityLimit && $0.disk >= ResourceMonitor.inferenceDiskReserve })
         } catch {
             await client?.close(); server?.stop(); _ = try? await serving?.value
             monitor.cancel(); await runtime.stop(); await queue.shutdown(); try await receipt.save(to: output, transcript: transcript); throw error
