@@ -79,3 +79,21 @@ not expose Positronic's per-allocation checkpoints. Actual prompt acceptance
 remains open until enough memory is released by other applications. Existing idle
 swap may remain afterward; active swap traffic, not simply file size, governs
 subsequent admission.
+
+## MLX NVFP4 check
+
+The same opt-in harness can select an already installed `muse-glimmer:30b-nvfp4`:
+
+```sh
+POSITRONIC_LIVE_MUSE=1 POSITRONIC_MUSE_MODEL=muse-glimmer:30b-nvfp4 \
+  swift test --filter LiveMuseTests
+```
+
+It keeps the 1,024-token context, 128-token batch, 32-token output bound,
+reasoning off, no unrelated-model eviction, scheduler admission, live monitoring
+and final unload. Operator model choices and API keys are unchanged. The harness
+never downloads weights. The supported GGUF component estimate is not applied to
+NVFP4: its different representation/loading path retains the conservative generic
+budget until measured evidence supports a separate estimator. A skipped or
+cancelled attempt cannot lower that budget. Downloading the MLX variant is a
+separate explicit operation and preserves the download disk reserve.

@@ -7,7 +7,10 @@ import ModelService
 final class LiveMuseTests: XCTestCase, @unchecked Sendable {
     func testInstalledMuseThroughResourceScheduler() async throws {
         guard ProcessInfo.processInfo.environment["POSITRONIC_LIVE_MUSE"] == "1" else { throw XCTSkip("Explicit Muse test required") }
-        let model = "muse-glimmer:30b"
+        let model = ProcessInfo.processInfo.environment["POSITRONIC_MUSE_MODEL"] ?? "muse-glimmer:30b"
+        guard ["muse-glimmer:30b", "muse-glimmer:30b-nvfp4"].contains(model) else {
+            throw ModelAPIError.invalid("Choose the installed Muse GGUF or MLX NVFP4 model for this bounded check.")
+        }
         var configuration = ServiceConfiguration()
         configuration.ollamaURL = "http://127.0.0.1:18768"
         configuration.generationModels = [model]
@@ -19,7 +22,7 @@ final class LiveMuseTests: XCTestCase, @unchecked Sendable {
         let budget = await engine.budget(for: model)
         let before = try ResourceMonitor.snapshot()
         let status = ResourceMonitor.restriction(before, budget: budget)
-        print("MUSE_PREFLIGHT available=\(before.available) required=\(status.requiredMemoryBytes) disk=\(before.disk) swapActivity=\(before.swapActivityBytes) pressure=\(before.pressure) reason=\(status.reason ?? "admitted")")
+        print("MUSE_PREFLIGHT model=\(model) available=\(before.available) required=\(status.requiredMemoryBytes) disk=\(before.disk) swapActivity=\(before.swapActivityBytes) pressure=\(before.pressure) reason=\(status.reason ?? "admitted")")
         if let reason = status.reason { throw XCTSkip(reason) }
         await queue.configure(prepare: { _ in }, cancelWorker: { try? await manager.unload(model) }, footprint: {
             try await manager.loaded().reduce(0) { $0 + ($1.memoryBytes ?? 0) }
