@@ -97,3 +97,10 @@ NVFP4: its different representation/loading path retains the conservative generi
 budget until measured evidence supports a separate estimator. A skipped or
 cancelled attempt cannot lower that budget. Downloading the MLX variant is a
 separate explicit operation and preserves the download disk reserve.
+
+Disk admission and download monitoring query fresh filesystem capacity with
+`fstatfs` on each sample. Reusing URL resource values can retain an old free-space
+reading during a long synchronous loop; cached capacity must never satisfy a
+later reserve check. The regression checks live capacity and failure for a missing
+destination;
+resumed-download telemetry verifies that successive samples follow actual writes.

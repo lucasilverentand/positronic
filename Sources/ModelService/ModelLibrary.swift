@@ -58,7 +58,7 @@ public struct ModelLibrary: Sendable {
         ["remote_host", "remote_model"].contains { !(value?.object?[$0]?.string ?? "").isEmpty }
     }
     public init(configuration: ServiceConfiguration, capacity: @escaping @Sendable (URL) throws -> Int64 = { url in
-        guard let value = try url.resourceValues(forKeys: [.volumeAvailableCapacityKey]).volumeAvailableCapacity else { throw ModelAPIError.unavailable("Disk telemetry unavailable.") }; return Int64(value)
+        try ResourceMonitor.availableDisk(at: url)
     }, transport: ModelAPIClient.Transport? = nil) throws {
         self.capacity = capacity
         try configuration.validate(); baseURL = URL(string: configuration.ollamaURL)!

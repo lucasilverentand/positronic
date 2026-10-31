@@ -31,8 +31,7 @@ public enum ResourceMonitor {
         var usage = xsw_usage(); size = MemoryLayout<xsw_usage>.size
         guard sysctlbyname("vm.swapusage", &usage, &size, nil, 0) == 0 else { throw ModelAPIError.unavailable("Swap telemetry is unavailable.") }
         let path = FileManager.default.fileExists(atPath: directory.path) ? directory : FileManager.default.homeDirectoryForCurrentUser
-        let disk = try path.resourceValues(forKeys: [.volumeAvailableCapacityKey]).volumeAvailableCapacity
-        guard let disk else { throw ModelAPIError.unavailable("Disk telemetry is unavailable.") }
+        let disk = try availableDisk(at: path)
         var cpu = host_cpu_load_info(); count = mach_msg_type_number_t(MemoryLayout<host_cpu_load_info>.size / MemoryLayout<integer_t>.size)
         let cpuStatus = withUnsafeMutablePointer(to: &cpu) { pointer in
             pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { host_statistics(mach_host_self(), HOST_CPU_LOAD_INFO, $0, &count) }
@@ -90,6 +89,19 @@ public enum ResourceMonitor {
         let size = Int32(MemoryLayout<proc_taskinfo>.size)
         guard proc_pidinfo(pid, PROC_PIDTASKINFO, 0, &info, size) == size else { throw ModelAPIError.unavailable("Worker memory telemetry is unavailable.") }
         return Int64(info.pti_resident_size)
+    }
+    /// URL resource values can remain cached while a long download blocks its
+    /// run loop. Query fresh, unprivileged filesystem capacity on every check.
+    public static func availableDisk(at directory: URL) throws -> Int64 {
+        let fd = Darwin.open(directory.path, O_RDONLY | O_CLOEXEC)
+        guard fd >= 0 else { throw ModelAPIError.unavailable("Disk telemetry is unavailable.") }
+        defer { Darwin.close(fd) }
+        var info = statfs()
+        let result = Darwin.fstatfs(fd, &info)
+        guard result == 0, info.f_bsize > 0 else { throw ModelAPIError.unavailable("Disk telemetry is unavailable.") }
+        let blocks = UInt64(info.f_bavail), blockSize = UInt64(info.f_bsize)
+        guard blocks <= UInt64(Int64.max) / blockSize else { throw ModelAPIError.unavailable("Invalid filesystem capacity.") }
+        return Int64(blocks * blockSize)
     }
     public static func requireDisk(at directory: URL, additional: Int64, reserve: Int64 = inferenceDiskReserve) throws {
         let snapshot = try snapshot(at: directory)

@@ -4,6 +4,12 @@ import XCTest
 @testable import ModelService
 
 final class InferenceDiskTests: XCTestCase, @unchecked Sendable {
+    func testDiskProbeReturnsLiveCapacityAndFailsClosed() throws {
+        let directory = FileManager.default.temporaryDirectory
+        XCTAssertGreaterThan(try ResourceMonitor.availableDisk(at: directory), 1)
+        let missing = directory.appendingPathComponent(UUID().uuidString)
+        XCTAssertThrowsError(try ResourceMonitor.availableDisk(at: missing))
+    }
     func testInstalledInferenceUsesWorkingReserveAndProjectedWrites() {
         var snapshot = ResourceSnapshot(physical: 36 << 30, available: 30 << 30, disk: 3 << 30)
         XCTAssertNil(ResourceMonitor.restriction(snapshot, budget: 1 << 30, diskBytes: 1 << 30).reason)
