@@ -92,15 +92,47 @@ POSITRONIC_LIVE_MUSE=1 POSITRONIC_MUSE_MODEL=muse-glimmer:30b-nvfp4 \
 It keeps the 1,024-token context, 128-token batch, 32-token output bound,
 reasoning off, no unrelated-model eviction, scheduler admission, live monitoring
 and final unload. Operator model choices and API keys are unchanged. The harness
-never downloads weights. The supported GGUF component estimate is not applied to
-NVFP4: its different representation/loading path retains the conservative generic
-budget until measured evidence supports a separate estimator. A skipped or
-cancelled attempt cannot lower that budget. Downloading the MLX variant is a
-separate explicit operation and preserves the download disk reserve.
+never downloads weights. The verified NVFP4 model/runtime pair uses its own
+validated route into the component estimator below. Unsupported revisions and
+loaders keep the conservative generic fallback. A skipped or cancelled attempt
+cannot lower a budget. Downloading the MLX variant is a separate explicit
+operation and preserves the download disk reserve.
 
 Disk admission and download monitoring query fresh filesystem capacity with
 `fstatfs` on each sample. Reusing URL resource values can retain an old free-space
 reading during a long synchronous loop; cached capacity must never satisfy a
 later reserve check. The regression checks live capacity and failure for a missing
-destination;
-resumed-download telemetry verifies that successive samples follow actual writes.
+destination. Resumed-download telemetry verifies that successive samples follow
+actual writes.
+
+## Verified NVFP4 component accounting
+
+The exact installed manifest `6a78d632287ffae676100cc23ab01eeefc535531ff05ce938b6868375e10670f`
+on Ollama 0.40.12 no longer falls back to `file bytes × 1.35 + 2 GiB`.
+That fallback had made a smaller MLX checkpoint appear larger than the supported
+GGUF path. The estimate now counts all 17,272,403,205 stored bytes once, including
+vision weights and non-weight metadata, the full FP16 context cache, one 2 GiB
+runtime/load/activation workspace and max(512 MiB, 5% of stored bytes) margin.
+It does not assume that text-only input avoids loading vision weights.
+
+The pinned model config blob
+`269faf6a067487d39b0bc28910c0568795d4d055f90776dd7e10ab313f78361d`
+records 52 layers, 2 KV heads and 128-wide heads. `/api/show` omits the head width;
+6656 hidden dimensions divided by 32 query heads would give the wrong value.
+The estimator therefore checks the exact revision, runtime version, stored size,
+quantization, architecture, parameter count and supported shape before using 128.
+Missing or changed evidence retains the generic fallback.
+
+At context 1024, KV cache is 54,525,952 bytes and model budget is
+20,338,032,965 bytes (about 18.9 GiB). With the unchanged 3.6 GiB system headroom,
+admission is about 22.5 GiB, versus 23.4 GiB for GGUF and the old 27.3 GiB generic
+NVFP4 estimate. This remains an estimate, not a measured peak. The fixed workspace
+and safety margin still need calibration from successful physical runs.
+
+Ollama 0.40.12's [loader](https://github.com/ollama/ollama/blob/v0.40.12/mlxrunner/runner.go)
+materializes stored tensors and clears the allocator cache after loading.
+[Muse weight assignment](https://github.com/ollama/ollama/blob/v0.40.12/mlxrunner/model/glimmer/glimmer.go)
+uses the [quantized linear factory](https://github.com/ollama/ollama/blob/v0.40.12/mlxrunner/model/linear.go),
+which retains packed quantized weights; it does not construct a whole-model FP16
+copy. These source facts support component accounting, not a promise that live
+monitoring can prevent every allocation burst. Upfront admission remains required.

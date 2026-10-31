@@ -61,9 +61,16 @@ public struct LocalModelEngine: ModelEngine {
         guard let raw = try? await call("api/tags", decode: JSONValue.self), case .array(let models) = raw.object?["models"],
               let tag = models.first(where: { $0.object?["name"]?.string == model }), let size = tag.object?["size"]?.numberValue,
               size.isFinite, size > 0, size < 1e12 else { return nil }
-        if let metadata = try? await call("api/show", value: .object(["model": .string(model)]), decode: JSONValue.self),
-           let estimate = OllamaMemoryEstimate.muse(weights: Int64(size), metadata: metadata, context: contextTokens) {
-            return estimate.total
+        if let metadata = try? await call("api/show", value: .object(["model": .string(model)]), decode: JSONValue.self) {
+            if let estimate = OllamaMemoryEstimate.muse(weights: Int64(size), metadata: metadata, context: contextTokens) {
+                return estimate.total
+            }
+            if tag.object?["digest"]?.string == OllamaMemoryEstimate.nvfp4Revision,
+               let version = try? await call("api/version", decode: JSONValue.self),
+               let estimate = OllamaMemoryEstimate.museNVFP4(weights: Int64(size), metadata: metadata, context: contextTokens,
+                    revision: tag.object?["digest"]?.string, runtime: version.object?["version"]?.string) {
+                return estimate.total
+            }
         }
         return Int64(size * 1.35) + 2 * 1024 * 1024 * 1024
     }
