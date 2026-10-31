@@ -274,6 +274,10 @@ Sources: [Ollama tags](https://ollama.com/library/muse-glimmer/tags), [Meta’s 
 
 For a bounded check of already installed Muse weights, run
 `POSITRONIC_LIVE_MUSE=1 swift test --filter LiveMuseTests` while no other local
-model is in use. It uses the production memory/swap scheduler, a 32-token prompt
+model is in use. It uses the production memory/swap scheduler, a 1,024-token context, and a 32-token prompt
 with reasoning disabled, and unloads afterward. A resource-blocked skip is not
 an inference pass. It never downloads weights or changes API model choices.
+
+Muse memory admission uses installed weights, metadata-derived FP16 context cache,
+one runtime/workspace allowance and a safety margin. See [memory estimates](docs/Model-memory.md)
+for the assumptions, supported shape and distinction between estimates and actual peaks.

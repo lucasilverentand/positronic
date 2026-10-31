@@ -20,8 +20,11 @@ public struct LocalModelEngine: ModelEngine {
     private let apple: any AppleModelBackend
     private let transport: ModelAPIClient.Transport
     private let activity: ModelActivity
+    private let contextTokens: Int
     private let budgetProvider: (@Sendable (String) async -> Int64?)?
-    public init(configuration: ServiceConfiguration, budgetProvider: (@Sendable (String) async -> Int64?)? = nil, transport: ModelAPIClient.Transport? = nil, activity: ModelActivity = .init(), apple: any AppleModelBackend = AppleModel()) throws {
+    public init(configuration: ServiceConfiguration, contextTokens: Int = OllamaMemoryEstimate.defaultContext, budgetProvider: (@Sendable (String) async -> Int64?)? = nil, transport: ModelAPIClient.Transport? = nil, activity: ModelActivity = .init(), apple: any AppleModelBackend = AppleModel()) throws {
+        guard (512...8192).contains(contextTokens) else { throw ModelAPIError.invalid("Local context must be between 512 and 8192 tokens.") }
+        self.contextTokens = contextTokens
         try configuration.validate(); self.configuration = configuration; self.transport = transport ?? HTTPTransport.send; self.activity = activity; self.apple = apple; self.budgetProvider = budgetProvider
     }
     private func call<T: Decodable>(_ path: String, value: JSONValue? = nil, decode: T.Type) async throws -> T {
@@ -58,6 +61,10 @@ public struct LocalModelEngine: ModelEngine {
         guard let raw = try? await call("api/tags", decode: JSONValue.self), case .array(let models) = raw.object?["models"],
               let tag = models.first(where: { $0.object?["name"]?.string == model }), let size = tag.object?["size"]?.numberValue,
               size.isFinite, size > 0, size < 1e12 else { return nil }
+        if let metadata = try? await call("api/show", value: .object(["model": .string(model)]), decode: JSONValue.self),
+           let estimate = OllamaMemoryEstimate.muse(weights: Int64(size), metadata: metadata, context: contextTokens) {
+            return estimate.total
+        }
         return Int64(size * 1.35) + 2 * 1024 * 1024 * 1024
     }
     public func models() async -> [ModelInfo] {
@@ -107,7 +114,7 @@ public struct LocalModelEngine: ModelEngine {
         }
         guard configuration.generationModels.contains(value.model) else { throw ModelAPIError.invalid("This generation model is not enabled.") }
         var body: [String: JSONValue] = ["model": .string(value.model), "prompt": .string(value.prompt), "stream": .bool(false),
-                                       "options": .object(["num_predict": .number(Double(value.maxTokens ?? 600))])]
+                                       "options": .object(["num_predict": .number(Double(value.maxTokens ?? 600)), "num_ctx": .number(Double(contextTokens)), "num_batch": .number(Double(OllamaMemoryEstimate.batchTokens))])]
         if let instructions = value.instructions { body["system"] = .string(instructions) }
         if let schema = value.schema { body["format"] = schema }
         if let think = value.think { body["think"] = think }

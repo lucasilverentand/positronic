@@ -49,7 +49,7 @@ public struct ModelManager: Sendable {
         switch capability {
         case .transcription, .speech, .conversation: throw ModelAPIError.invalid("Use the local audio runtime for this model.")
         case .generation:
-            path = "api/generate"; body["stream"] = .bool(false)
+            path = "api/generate"; body["stream"] = .bool(false); body["options"] = .object(["num_ctx": .number(Double(OllamaMemoryEstimate.defaultContext)), "num_batch": .number(Double(OllamaMemoryEstimate.batchTokens))])
         case .embedding:
             path = "api/embed"; body["input"] = .array([.string("Local model readiness check.")]); body["truncate"] = .bool(false)
         case .decision:

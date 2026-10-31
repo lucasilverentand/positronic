@@ -15,7 +15,7 @@ final class LiveMuseTests: XCTestCase, @unchecked Sendable {
         guard try await manager.loaded().isEmpty else { throw XCTSkip("An existing local model is in use; leave it untouched.") }
         let queue = JobQueue(directory: FileManager.default.temporaryDirectory.appendingPathComponent("MuseCheck-" + UUID().uuidString), waitLimit: 30)
         let activity = ModelActivity(jobs: queue)
-        let engine = try LocalModelEngine(configuration: configuration, activity: activity)
+        let engine = try LocalModelEngine(configuration: configuration, contextTokens: 1024, activity: activity)
         let budget = await engine.budget(for: model)
         let before = try ResourceMonitor.snapshot()
         let status = ResourceMonitor.restriction(before, budget: budget)
