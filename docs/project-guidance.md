@@ -7,3 +7,9 @@ At migration, the default branch contains an empty source tree. These are accept
 ## Topics
 
 - [Positronic — local inference API](guidance/01-positronic-local-inference-api.md)
+
+## Source recovery
+
+[Superseded local source history](source-history/2026-11-01/README.md) preserves exact
+checkpoint and rewritten source identities, with a checksum manifest and restore
+instructions. These historical variants do not replace the accepted implementation.

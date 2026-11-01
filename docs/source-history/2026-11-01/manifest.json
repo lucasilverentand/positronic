@@ -1,0 +1,394 @@
+{
+  "formatVersion": 1,
+  "repository": "https://github.com/lucasilverentand/positronic.git",
+  "prerequisiteMain": "8dc8ccf971677b0c51cddf979861126441903105",
+  "bundle": {
+    "file": "local-source.bundle",
+    "bytes": 54232,
+    "sha256": "f49ec70947a5fb6fb1293b89a322aafc43eeef5e674097fcce1010648db313d3"
+  },
+  "originalCheckoutHead": "8963e04b3c05202d87016fecb09b684ce94cd475",
+  "originalIndexTree": "e69ef22b2b9e2eaddc3e428144b569ae52d03121",
+  "originalRefs": [
+    {
+      "ref": "refs/heads/codex/st-311-apple-pcc",
+      "oid": "67e28216b3cf3006be8b2d3642ebe8de65bff0f0",
+      "type": "commit"
+    },
+    {
+      "ref": "refs/heads/codex/st-311-brain-component",
+      "oid": "dd00926da76481d0a3c066c39350920d6570f7c8",
+      "type": "commit"
+    },
+    {
+      "ref": "refs/heads/codex/st-311-liquid-glass-icon",
+      "oid": "076287071909b03c062efbdb3ae6847cefe4ac49",
+      "type": "commit"
+    },
+    {
+      "ref": "refs/heads/codex/st-311-live-readiness",
+      "oid": "5aa121ca90ebbc7a479b39ecdbb7fa4ee7a1a53c",
+      "type": "commit"
+    },
+    {
+      "ref": "refs/heads/codex/st-311-local-audio",
+      "oid": "f48eaa7c10f280fe48ffb26934c19747ee4cda6e",
+      "type": "commit"
+    },
+    {
+      "ref": "refs/heads/codex/st-311-model-browser",
+      "oid": "00fc42e2aa2c82ecaec01df1e43b395c41b06bb0",
+      "type": "commit"
+    },
+    {
+      "ref": "refs/heads/codex/st-311-model-lifecycle",
+      "oid": "62cf626011f45928c7c702064e9070109bc96853",
+      "type": "commit"
+    },
+    {
+      "ref": "refs/heads/codex/st-311-model-test-panels",
+      "oid": "4401bd8d10870c63a066e46bed8033e531e0ce11",
+      "type": "commit"
+    },
+    {
+      "ref": "refs/heads/codex/st-311-muse-glimmer",
+      "oid": "3b5060e4d1d4fa3c7d56cb11a516ba57a6ee28fc",
+      "type": "commit"
+    },
+    {
+      "ref": "refs/heads/codex/st-311-reclaimable-memory",
+      "oid": "5ac180fc286025a5c9d3f8747520382d20a022e0",
+      "type": "commit"
+    },
+    {
+      "ref": "refs/heads/codex/st-311-restore-brain",
+      "oid": "dccbd24dca7ad60cd96b58c8c9d9d354829bfbf4",
+      "type": "commit"
+    },
+    {
+      "ref": "refs/heads/codex/st-311-soft-brain-layer",
+      "oid": "554140cacdb218e5bac7396f8fe0525a955b8fb6",
+      "type": "commit"
+    },
+    {
+      "ref": "refs/heads/codex/st-311-standalone-model-api",
+      "oid": "8963e04b3c05202d87016fecb09b684ce94cd475",
+      "type": "commit"
+    },
+    {
+      "ref": "refs/heads/main",
+      "oid": "880ed7692574fdf09f68a7175044182fb0d91128",
+      "type": "commit"
+    },
+    {
+      "ref": "refs/remotes/origin/HEAD",
+      "oid": "8dc8ccf971677b0c51cddf979861126441903105",
+      "type": "commit"
+    },
+    {
+      "ref": "refs/remotes/origin/codex/bootstrap",
+      "oid": "880ed7692574fdf09f68a7175044182fb0d91128",
+      "type": "commit"
+    },
+    {
+      "ref": "refs/remotes/origin/codex/st-311-standalone-model-api",
+      "oid": "8963e04b3c05202d87016fecb09b684ce94cd475",
+      "type": "commit"
+    },
+    {
+      "ref": "refs/remotes/origin/codex/st-364-project-knowledge",
+      "oid": "ef9394ec57d76c0e0bb42fcc5323521bbb584616",
+      "type": "commit"
+    },
+    {
+      "ref": "refs/remotes/origin/main",
+      "oid": "8dc8ccf971677b0c51cddf979861126441903105",
+      "type": "commit"
+    },
+    {
+      "ref": "refs/t3/orchestration-v2/checkpoints/M2YzMDdmYjM3ZTIwMTQxMDg2ZTFhZTRkM2ZjNDQ1NjQ/ordinal/0",
+      "oid": "3b6b635ed5b2f6347b0d94e22573faf93b9d603c",
+      "type": "commit"
+    },
+    {
+      "ref": "refs/t3/orchestration-v2/checkpoints/M2YzMDdmYjM3ZTIwMTQxMDg2ZTFhZTRkM2ZjNDQ1NjQ/ordinal/1",
+      "oid": "87da7f0e3f6de08344f36dd43a22867f5693f45a",
+      "type": "commit"
+    },
+    {
+      "ref": "refs/t3/orchestration-v2/checkpoints/NmE0NjAzMTBmYmIwOGYzZDI1NzNhYWZhZDg4Nzk4YzI/ordinal/0",
+      "oid": "0eccf420c1cd1370b36fbc55e83199eab9460d09",
+      "type": "commit"
+    },
+    {
+      "ref": "refs/t3/orchestration-v2/checkpoints/NmE0NjAzMTBmYmIwOGYzZDI1NzNhYWZhZDg4Nzk4YzI/ordinal/1",
+      "oid": "5b34cc67f0b76053d209b94c4b0cebccf0fb0d13",
+      "type": "commit"
+    },
+    {
+      "ref": "refs/t3/orchestration-v2/checkpoints/NmE0NjAzMTBmYmIwOGYzZDI1NzNhYWZhZDg4Nzk4YzI/ordinal/2",
+      "oid": "cf6ee88129a555822771fcbfd12cd7f13b0cf28d",
+      "type": "commit"
+    },
+    {
+      "ref": "refs/t3/orchestration-v2/checkpoints/NmE0NjAzMTBmYmIwOGYzZDI1NzNhYWZhZDg4Nzk4YzI/ordinal/3",
+      "oid": "9bd4214df09d75cb2b9b154510ae1638a4e468ad",
+      "type": "commit"
+    },
+    {
+      "ref": "refs/t3/orchestration-v2/checkpoints/NmE0NjAzMTBmYmIwOGYzZDI1NzNhYWZhZDg4Nzk4YzI/ordinal/4",
+      "oid": "5d4836dd9208000f375bca63e2d3cfccf375681c",
+      "type": "commit"
+    },
+    {
+      "ref": "refs/t3/orchestration-v2/checkpoints/NmE0NjAzMTBmYmIwOGYzZDI1NzNhYWZhZDg4Nzk4YzI/ordinal/5",
+      "oid": "3b34b6615948da3a1329ce9d70c42d6af8cf1883",
+      "type": "commit"
+    }
+  ],
+  "originalReflogIdentities": [
+    "8dc8ccf971677b0c51cddf979861126441903105",
+    "8963e04b3c05202d87016fecb09b684ce94cd475",
+    "de5994ae97ca22b2319b8e907f771b2d589e0533",
+    "d7668663ca87fc1e4a9a541fcac2af0725b931da",
+    "6782d827d018d3fbf96743724dcd7dde1f7256bc",
+    "5f5aabd8599c623ce3303b207d8bb7f00968cd0c",
+    "ef9394ec57d76c0e0bb42fcc5323521bbb584616",
+    "23297a03c77bdf33ae6edc10eee08c2d1053a2a1",
+    "4369b3a08fb17b6d4a44ccbc837f8c8c788a7b1b",
+    "640ef6342e22ddd176732c4013d077b1a27ac3eb",
+    "aa457b166b41d3b2aa6cb83031ec3495a16a6a35",
+    "02729536826eaf42d988847dab2b39670bacbf03",
+    "bf7fbbbf2e0a8cf07817ee7c8a60f07eae46495a",
+    "16e37c0bd7276848efb98504d733f57b135540a9",
+    "986082dd1d59e19a43b2ca01f4647febf82f7cbf",
+    "fad0de3bab0ff3fc7c9920948e0c94fb06451cf0",
+    "5451593d4416e5f8bbe3d5eb84ab300289629cff",
+    "e646cc19791a9e5a1ab56cab76b53fbb1df62720",
+    "a20e97e43fd258fd55b6b07b4e1d771305a366ca",
+    "81ae2fbadfbe3891ee9753d5fb447ecbe11a3aa0",
+    "903b9165e3e94e65386642cc348b1ac9e375db97",
+    "ccff6d3d2a2d8824336cbf90f5e69ded821dc60a",
+    "4401bd8d10870c63a066e46bed8033e531e0ce11",
+    "5ac180fc286025a5c9d3f8747520382d20a022e0",
+    "554140cacdb218e5bac7396f8fe0525a955b8fb6",
+    "dccbd24dca7ad60cd96b58c8c9d9d354829bfbf4",
+    "dd00926da76481d0a3c066c39350920d6570f7c8",
+    "076287071909b03c062efbdb3ae6847cefe4ac49",
+    "f48eaa7c10f280fe48ffb26934c19747ee4cda6e",
+    "9f7f20b86f43d1a2fc4cde7e4d527bd567ea9fbb",
+    "0fd5ed14e717f06bd5869435995f0ee1cc2ebe9b",
+    "3b5060e4d1d4fa3c7d56cb11a516ba57a6ee28fc",
+    "00fc42e2aa2c82ecaec01df1e43b395c41b06bb0",
+    "77ad79e0a5218d3d9c6b6923e3ab96ff850c8a94",
+    "67e28216b3cf3006be8b2d3642ebe8de65bff0f0",
+    "62cf626011f45928c7c702064e9070109bc96853",
+    "650455793574ddf78e0661ae8c22f43a734260dc",
+    "e1e8ae9fcdeab9add3f7c80af18ec8426e44257a",
+    "8c8b8755ed815267ac9674b12e812ecef9172c54",
+    "880ed7692574fdf09f68a7175044182fb0d91128",
+    "a9a60be7441cec6e6a6ad4302bfa400de0288236",
+    "5aa121ca90ebbc7a479b39ecdbb7fa4ee7a1a53c",
+    "ac5f178a016c2dba40b583043438cbac23526953",
+    "bde00fd58ca9a1823aaf8df93f3a093dc7e25b17",
+    "45913f6fbd892f9ddff2800d5b544554c9bc8561"
+  ],
+  "archiveRefs": [
+    {
+      "ref": "refs/t3/orchestration-v2/checkpoints/M2YzMDdmYjM3ZTIwMTQxMDg2ZTFhZTRkM2ZjNDQ1NjQ/ordinal/0",
+      "oid": "3b6b635ed5b2f6347b0d94e22573faf93b9d603c",
+      "type": "commit"
+    },
+    {
+      "ref": "refs/t3/orchestration-v2/checkpoints/M2YzMDdmYjM3ZTIwMTQxMDg2ZTFhZTRkM2ZjNDQ1NjQ/ordinal/1",
+      "oid": "87da7f0e3f6de08344f36dd43a22867f5693f45a",
+      "type": "commit"
+    },
+    {
+      "ref": "refs/t3/orchestration-v2/checkpoints/NmE0NjAzMTBmYmIwOGYzZDI1NzNhYWZhZDg4Nzk4YzI/ordinal/0",
+      "oid": "0eccf420c1cd1370b36fbc55e83199eab9460d09",
+      "type": "commit"
+    },
+    {
+      "ref": "refs/t3/orchestration-v2/checkpoints/NmE0NjAzMTBmYmIwOGYzZDI1NzNhYWZhZDg4Nzk4YzI/ordinal/1",
+      "oid": "5b34cc67f0b76053d209b94c4b0cebccf0fb0d13",
+      "type": "commit"
+    },
+    {
+      "ref": "refs/t3/orchestration-v2/checkpoints/NmE0NjAzMTBmYmIwOGYzZDI1NzNhYWZhZDg4Nzk4YzI/ordinal/2",
+      "oid": "cf6ee88129a555822771fcbfd12cd7f13b0cf28d",
+      "type": "commit"
+    },
+    {
+      "ref": "refs/t3/orchestration-v2/checkpoints/NmE0NjAzMTBmYmIwOGYzZDI1NzNhYWZhZDg4Nzk4YzI/ordinal/3",
+      "oid": "9bd4214df09d75cb2b9b154510ae1638a4e468ad",
+      "type": "commit"
+    },
+    {
+      "ref": "refs/t3/orchestration-v2/checkpoints/NmE0NjAzMTBmYmIwOGYzZDI1NzNhYWZhZDg4Nzk4YzI/ordinal/4",
+      "oid": "5d4836dd9208000f375bca63e2d3cfccf375681c",
+      "type": "commit"
+    },
+    {
+      "ref": "refs/t3/orchestration-v2/checkpoints/NmE0NjAzMTBmYmIwOGYzZDI1NzNhYWZhZDg4Nzk4YzI/ordinal/5",
+      "oid": "3b34b6615948da3a1329ce9d70c42d6af8cf1883",
+      "type": "commit"
+    },
+    {
+      "ref": "refs/archive/unreachable/19e21785cc7356cb50a9d39b2d9471f9be389ba4",
+      "oid": "19e21785cc7356cb50a9d39b2d9471f9be389ba4",
+      "type": "commit"
+    },
+    {
+      "ref": "refs/archive/unreachable/2c4865e5a296db00372999faa0c0f9b184538eaa",
+      "oid": "2c4865e5a296db00372999faa0c0f9b184538eaa",
+      "type": "commit"
+    },
+    {
+      "ref": "refs/archive/local-source-objects",
+      "oid": "1300c85d35715934bca8cf48ad95196d5d5f4a8e",
+      "type": "commit"
+    }
+  ],
+  "originalLocalOnlyObjects": [
+    {
+      "oid": "060fed65f1acd262b5ccd7af08a362948398f5d2",
+      "type": "tree",
+      "size": 484
+    },
+    {
+      "oid": "0eccf420c1cd1370b36fbc55e83199eab9460d09",
+      "type": "commit",
+      "size": 339,
+      "tree": "3894dcef56db5043b6977d83c6105724e3f4fa08",
+      "publishedTreeMatches": [
+        "23297a03c77bdf33ae6edc10eee08c2d1053a2a1"
+      ]
+    },
+    {
+      "oid": "19e21785cc7356cb50a9d39b2d9471f9be389ba4",
+      "type": "commit",
+      "size": 783,
+      "tree": "060fed65f1acd262b5ccd7af08a362948398f5d2",
+      "publishedTreeMatches": []
+    },
+    {
+      "oid": "2c4865e5a296db00372999faa0c0f9b184538eaa",
+      "type": "commit",
+      "size": 513,
+      "tree": "8ee4df8a8532dd38c18e06d8d493f77f788871c1",
+      "publishedTreeMatches": []
+    },
+    {
+      "oid": "3b34b6615948da3a1329ce9d70c42d6af8cf1883",
+      "type": "commit",
+      "size": 339,
+      "tree": "e69ef22b2b9e2eaddc3e428144b569ae52d03121",
+      "publishedTreeMatches": [
+        "8dc8ccf971677b0c51cddf979861126441903105",
+        "8963e04b3c05202d87016fecb09b684ce94cd475"
+      ]
+    },
+    {
+      "oid": "3b6b635ed5b2f6347b0d94e22573faf93b9d603c",
+      "type": "commit",
+      "size": 339,
+      "tree": "3894dcef56db5043b6977d83c6105724e3f4fa08",
+      "publishedTreeMatches": [
+        "23297a03c77bdf33ae6edc10eee08c2d1053a2a1"
+      ]
+    },
+    {
+      "oid": "3b6b91903a70fea5c6b7e5468a757095babe1a85",
+      "type": "blob",
+      "size": 1391
+    },
+    {
+      "oid": "5b34cc67f0b76053d209b94c4b0cebccf0fb0d13",
+      "type": "commit",
+      "size": 339,
+      "tree": "196d35dd98911f90a5cd5fe5a2d2b3ea82dc4660",
+      "publishedTreeMatches": [
+        "6782d827d018d3fbf96743724dcd7dde1f7256bc"
+      ]
+    },
+    {
+      "oid": "5d4836dd9208000f375bca63e2d3cfccf375681c",
+      "type": "commit",
+      "size": 339,
+      "tree": "e69ef22b2b9e2eaddc3e428144b569ae52d03121",
+      "publishedTreeMatches": [
+        "8dc8ccf971677b0c51cddf979861126441903105",
+        "8963e04b3c05202d87016fecb09b684ce94cd475"
+      ]
+    },
+    {
+      "oid": "87da7f0e3f6de08344f36dd43a22867f5693f45a",
+      "type": "commit",
+      "size": 339,
+      "tree": "3894dcef56db5043b6977d83c6105724e3f4fa08",
+      "publishedTreeMatches": [
+        "23297a03c77bdf33ae6edc10eee08c2d1053a2a1"
+      ]
+    },
+    {
+      "oid": "8ee4df8a8532dd38c18e06d8d493f77f788871c1",
+      "type": "tree",
+      "size": 484
+    },
+    {
+      "oid": "9bd4214df09d75cb2b9b154510ae1638a4e468ad",
+      "type": "commit",
+      "size": 339,
+      "tree": "069790570c52b5b8bdc79ecc613f041fda8b9501",
+      "publishedTreeMatches": [
+        "de5994ae97ca22b2319b8e907f771b2d589e0533"
+      ]
+    },
+    {
+      "oid": "a82686cb7cff5f14b2279d6d4217d3a6e422782d",
+      "type": "blob",
+      "size": 3015
+    },
+    {
+      "oid": "b9254ca083175d36e31df405d04ad07c11c3043b",
+      "type": "blob",
+      "size": 4023
+    },
+    {
+      "oid": "c388fe7400e3e37b9e9abc1b685d6b4fcab70087",
+      "type": "tree",
+      "size": 558
+    },
+    {
+      "oid": "cf6ee88129a555822771fcbfd12cd7f13b0cf28d",
+      "type": "commit",
+      "size": 339,
+      "tree": "df4d75ecb40ddf01a937a22aa8528e8e11078bba",
+      "publishedTreeMatches": [
+        "d7668663ca87fc1e4a9a541fcac2af0725b931da"
+      ]
+    },
+    {
+      "oid": "dc4808b7b7005e12e1539da1fc32f38e1ccd282f",
+      "type": "blob",
+      "size": 21571
+    },
+    {
+      "oid": "f61dcd52238476f7600aa244979a29048995d75a",
+      "type": "blob",
+      "size": 1448
+    }
+  ],
+  "syntheticObjectAnchor": {
+    "commit": "1300c85d35715934bca8cf48ad95196d5d5f4a8e",
+    "tree": "ec0b97faa7b45fcf04008db59be10b4549958814",
+    "meaning": "Container for exact detached source blobs and trees; not an implementation branch."
+  },
+  "reconciliation": {
+    "currentSource": "Original HEAD and index tree exactly match published main at prerequisiteMain.",
+    "checkpoints": "All eight checkpoints have trees identical to their published parents.",
+    "rewrittenCommits": "19e21785 is the pre-icon-rebase resource-profile change; a20e97e preserves it with the accepted operator-edited icon. 2c4865e5 is its superseded guarded-live-test parent.",
+    "detachedObjects": "Preserved source variants include NOTICE, Decisions.swift, JSONValue.swift, RealtimeMicrophone.swift and a README merge-conflict intermediate. They are historical alternatives, not accepted replacements."
+  }
+}
