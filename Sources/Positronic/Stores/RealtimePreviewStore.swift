@@ -213,8 +213,13 @@ private actor RealtimeAudioIO {
     private func startPlayer(_ player: AVAudioPlayerNode) throws {
         for _ in 0..<200 where player.lastRenderTime == nil { Thread.sleep(forTimeInterval: 0.01) }
         guard player.lastRenderTime != nil else { throw ModelAPIError.unavailable("The selected speaker did not begin rendering. Check the audio device and retry.") }
+        // Xcode 26 SDKs do not declare playAudio, even behind an availability check.
+        #if compiler(>=6.4)
         if #available(macOS 27.0, *) { try player.playAudio() }
         else { player.play() }
+        #else
+        player.play()
+        #endif
     }
     func clear() throws { if let player { player.stop(); try startPlayer(player) } }
     func stop() {
