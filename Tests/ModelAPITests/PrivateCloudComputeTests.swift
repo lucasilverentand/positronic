@@ -141,14 +141,20 @@ final class PrivateCloudComputeTests: XCTestCase, @unchecked Sendable {
         do { _ = try await client.generate(.init(model: "apple-pcc", prompt: "Synthetic")); XCTFail("Expected quota error") }
         catch { XCTAssertTrue(error.localizedDescription.contains("daily request limit")) }
     }
-    func testActualUnsignedHarnessReportsMissingEntitlementWithoutSendingAPrompt() async throws {
+    func testActualUnsignedHarnessRejectsCloudWithoutSendingAPrompt() async throws {
         guard !AppEntitlements.allowsPrivateCloudCompute() else { throw XCTSkip("Harness has a PCC entitlement") }
         let apple = AppleModel()
         let status = await apple.cloudStatus(enabled: true)
         XCTAssertFalse(status.available)
         XCTAssertEqual(status.execution, .applePrivateCloudCompute)
-        do { _ = try await apple.generateCloud(.init(model: "apple-pcc", prompt: "Synthetic")); XCTFail("Missing entitlement must prevent submission") }
-        catch { XCTAssertTrue(error.localizedDescription.contains("entitlement")) }
+        var expectedReason = "macOS 27 SDK"
+        #if compiler(>=6.4)
+        if #available(macOS 27.0, *) { expectedReason = "entitlement" }
+        #endif
+        XCTAssertTrue(status.detail.contains(expectedReason), "Expected \(expectedReason), got: \(status.detail)")
+        do { _ = try await apple.generateCloud(.init(model: "apple-pcc", prompt: "Synthetic")); XCTFail("Unavailable PCC must prevent submission") }
+        catch ModelAPIError.unavailable(let detail) { XCTAssertEqual(detail, status.detail) }
+        catch { XCTFail("Expected PCC unavailability, got: \(error)") }
     }
     func testAppleQuotaAndNetworkFailuresAreActionable() throws {
         #if compiler(>=6.4)
