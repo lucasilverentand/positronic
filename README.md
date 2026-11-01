@@ -52,6 +52,14 @@ swift build
 swift test
 ```
 
+GitHub Actions runs [Swift checks](https://github.com/lucasilverentand/positronic/actions/workflows/test.yml)
+for pull requests and pushes to `main`, with a manual run option after the workflow
+is on `main`. It builds and tests on the standard `macos-26` runner with two compiler
+jobs. CI runs only while the repository is public, where standard hosted runner
+compute is free. It uses no signing credentials, model downloads, opt-in live
+inference, uploaded artifacts or build caches. Live model and signed-app acceptance
+remain separate checks.
+
 ## App pages
 
 **Your models** shows all model types together in a searchable list. The selected model has its own test input and result alongside its memory, API access, load/unload and removal controls.

@@ -3,13 +3,31 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
+
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
+    name: Build and test
+    # Standard hosted runners are free for public repositories.
+    if: ${{ !github.event.repository.private }}
     runs-on: macos-26
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - run: swift build
-      - run: swift test
+        with:
+          persist-credentials: false
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+      - name: Build
+        run: swift build --jobs 2
+      - name: Test
+        run: swift test --jobs 2
