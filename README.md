@@ -1,5 +1,7 @@
 # Positronic
 
+Accepted requirements and project knowledge: [project guidance](docs/project-guidance.md).
+
 <img src="Assets/AppIcon.png" width="128" alt="Positronic icon">
 
 A small native Mac app that makes local models and optional **Apple Private Cloud Compute** available to local scripts
