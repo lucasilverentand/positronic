@@ -1,0 +1,82 @@
+{
+  "features" : [
+    "refractivity"
+  ],
+  "fill" : {
+    "automatic-gradient" : "display-p3:0.45958,0.36539,0.97185,1.00000"
+  },
+  "groups" : [
+    {
+      "blend-mode" : "normal",
+      "blur-material" : 0.05,
+      "layers" : [
+        {
+          "blend-mode" : "lighten",
+          "fill" : "automatic",
+          "glass" : true,
+          "image-name" : "Brain.png",
+          "name" : "Brain · softer gloss",
+          "position" : {
+            "scale" : 0.6,
+            "translation-in-points" : [
+              -3.2999999999999545,
+              0
+            ]
+          }
+        }
+      ],
+      "name" : "Illustrated brain",
+      "refractivity" : {
+        "depth" : 0.579375,
+        "enabled" : true,
+        "strength" : 0.8066796875
+      },
+      "shadow" : {
+        "kind" : "layer-color",
+        "opacity" : 0.12
+      },
+      "specular" : true,
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.5
+      }
+    },
+    {
+      "blur-material" : null,
+      "layers" : [
+        {
+          "image-name" : "jack-white-eYCVfGWbRik-unsplash.jpg",
+          "name" : "jack-white-eYCVfGWbRik-unsplash",
+          "opacity" : 0.9,
+          "position" : {
+            "scale" : 0.3,
+            "translation-in-points" : [
+              0,
+              279
+            ]
+          }
+        }
+      ],
+      "name" : "Illustrated brain",
+      "refractivity" : {
+        "depth" : 0.49,
+        "enabled" : true,
+        "strength" : 0.2841796875
+      },
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.12
+      },
+      "specular" : false,
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.5
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "squares" : [
+      "macOS"
+    ]
+  }
+}

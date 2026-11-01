@@ -1,0 +1,5 @@
+mlx-audio[stt]==0.6.3
+soundfile==0.13.1
+tiktoken==0.12.0
+
+mlx-vlm==0.7.11

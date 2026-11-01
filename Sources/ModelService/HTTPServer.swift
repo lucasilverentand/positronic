@@ -1,0 +1,255 @@
+import Foundation
+@preconcurrency import Network
+import ModelAPI
+
+public struct HTTPRequest: Sendable {
+    public var method: String; public var target: String; public var headers: [String: String]; public var body: Data
+    public var upload: URL? = nil
+    public var path: String { String(target.split(separator: "?", maxSplits: 1).first ?? "") }
+    public var query: [String: String] { Dictionary((URLComponents(string: "http://127.0.0.1\(target)")?.queryItems ?? []).map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { _, last in last }) }
+    public var bearer: String { headers["authorization"].flatMap { $0.hasPrefix("Bearer ") ? String($0.dropFirst(7)) : nil } ?? "" }
+}
+public struct HTTPResponse: Sendable {
+    public var status: Int; public var type: String; public var body: Data
+    public init(status: Int = 200, type: String = "application/json", body: Data) { self.status = status; self.type = type; self.body = body }
+    public var file: URL?
+    public init(file: URL, type: String) { self.file = file; self.type = type; self.body = Data(); self.status = 200 }
+    public static func json<T: Encodable>(_ value: T, status: Int = 200) throws -> Self { let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601; return .init(status: status, body: try encoder.encode(value)) }
+    public static func error(_ message: String, status: Int) -> Self { try! .json(["error": message], status: status) }
+}
+public enum HTTPParser {
+    public static func parse(_ data: Data) throws -> HTTPRequest? {
+        guard data.count <= 1_100_000 else { throw ModelAPIError.invalid("Request too large.") }
+        guard let split = data.range(of: Data("\r\n\r\n".utf8)) else {
+            guard data.count < 16384 else { throw ModelAPIError.invalid("Headers too large.") }; return nil
+        }
+        guard split.lowerBound < 16384, let header = String(data: data[..<split.lowerBound], encoding: .utf8) else { throw ModelAPIError.invalid("Invalid headers.") }
+        let lines = header.components(separatedBy: "\r\n"); let first = lines[0].split(separator: " ")
+        guard first.count == 3, ["GET", "POST"].contains(String(first[0])), first[1].hasPrefix("/"), first[2] == "HTTP/1.1" else { throw ModelAPIError.invalid("Invalid request line.") }
+        var headers: [String: String] = [:]
+        for line in lines.dropFirst() {
+            let parts = line.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+            guard parts.count == 2 else { throw ModelAPIError.invalid("Invalid header.") }
+            let key = parts[0].lowercased(); guard headers[key] == nil else { throw ModelAPIError.invalid("Duplicate headers are not supported.") }
+            headers[key] = parts[1].trimmingCharacters(in: .whitespaces)
+        }
+        guard headers["transfer-encoding"] == nil else { throw ModelAPIError.invalid("Chunked requests are not supported.") }
+        let length = headers["content-length"].flatMap(Int.init) ?? 0
+        guard length >= 0, length <= 1_000_000, headers["content-length"] == nil || Int(headers["content-length"]!) != nil else { throw ModelAPIError.invalid("Invalid body length.") }
+        if data.count < split.upperBound + length { return nil }
+        guard data.count == split.upperBound + length else { throw ModelAPIError.invalid("Pipelined requests are not supported.") }
+        return HTTPRequest(method: String(first[0]), target: String(first[1]), headers: headers, body: Data(data[split.upperBound...]))
+    }
+}
+public typealias RealtimeHandler = @Sendable (HTTPRequest, RealtimeSocket) async -> Void
+public final class LoopbackServer: @unchecked Sendable {
+    private let listener: NWListener
+    private let peers = PeerRegistry()
+    private let realtime: RealtimeHandler?
+    private let handler: @Sendable (HTTPRequest) async -> HTTPResponse
+    private let authorizeUpload: @Sendable (HTTPRequest) async -> Bool
+    private let uploadDirectory: URL
+    private let diskBudget: UploadDiskBudget
+    public var port: UInt16? { listener.port?.rawValue }
+    public init(port: UInt16 = 18767, allowNetwork: Bool = false, uploadDirectory: URL = AudioCatalog.jobsDirectory, checkDisk: @escaping @Sendable (URL, Int64) throws -> Void = { try ResourceMonitor.requireDisk(at: $0, additional: $1) }, authorizeUpload: @escaping @Sendable (HTTPRequest) async -> Bool = { _ in false }, realtime: RealtimeHandler? = nil, handler: @escaping @Sendable (HTTPRequest) async -> HTTPResponse) throws {
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host: allowNetwork ? "0.0.0.0" : "127.0.0.1", port: NWEndpoint.Port(rawValue: port)!)
+        self.realtime = realtime; self.listener = try NWListener(using: parameters); self.handler = handler; self.authorizeUpload = authorizeUpload; self.uploadDirectory = uploadDirectory; self.diskBudget = UploadDiskBudget(directory: uploadDirectory, check: checkDisk)
+    }
+    public func run(onReady: @escaping @Sendable () -> Void = {}) async throws {
+        let listener = listener, handler = handler, peers = peers, authorizeUpload = authorizeUpload, uploadDirectory = uploadDirectory, diskBudget = diskBudget, realtime = realtime
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                let completion = ListenerCompletion(continuation)
+                listener.stateUpdateHandler = { state in
+                    switch state { case .ready: onReady(); case .failed(let error): completion.finish(error); case .cancelled: completion.finish(nil); default: break }
+                }
+                listener.newConnectionHandler = { connection in
+                    guard peers.insert(connection) else { connection.cancel(); return }
+                    let peer = HTTPPeer(connection: connection, handler: handler, authorizeUpload: authorizeUpload, uploadDirectory: uploadDirectory, diskBudget: diskBudget, realtime: realtime)
+                    connection.stateUpdateHandler = { state in
+                        if case .cancelled = state { peers.remove(connection); Task { await peer.close() } }
+                        if case .failed = state { peers.remove(connection); Task { await peer.close() } }
+                    }
+                    connection.start(queue: .global())
+                    Task { await peer.start() }
+                }
+                listener.start(queue: .global())
+            }
+        } onCancel: { peers.stop(); listener.cancel() }
+    }
+    public func stop() { peers.stop(); listener.cancel() }
+}
+private final class PeerRegistry: @unchecked Sendable {
+    private let lock = NSLock()
+    private var connections: [ObjectIdentifier: NWConnection] = [:]
+    private var stopped = false
+    func insert(_ connection: NWConnection) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard !stopped, connections.count < 64 else { return false }
+        connections[ObjectIdentifier(connection)] = connection; return true
+    }
+    func remove(_ connection: NWConnection) { lock.lock(); defer { lock.unlock() }; connections.removeValue(forKey: ObjectIdentifier(connection)) }
+    func stop() {
+        lock.lock(); stopped = true; let pending = Array(connections.values); connections.removeAll(); lock.unlock()
+        for connection in pending { connection.cancel() }
+    }
+}
+private final class ListenerCompletion: @unchecked Sendable {
+    private let lock = NSLock(); private var continuation: CheckedContinuation<Void, any Error>?
+    init(_ continuation: CheckedContinuation<Void, any Error>) { self.continuation = continuation }
+    func finish(_ error: (any Error)?) {
+        lock.lock(); let c = continuation; continuation = nil; lock.unlock()
+        if let error { c?.resume(throwing: error) } else { c?.resume() }
+    }
+}
+private actor HTTPPeer {
+    private let connection: NWConnection
+    private let realtime: RealtimeHandler?
+    private let handler: @Sendable (HTTPRequest) async -> HTTPResponse
+    private let authorizeUpload: @Sendable (HTTPRequest) async -> Bool
+    private let uploadDirectory: URL
+    private let diskBudget: UploadDiskBudget
+    private var diskReservation: UUID?
+    private var upload: URL?
+    private var uploadHandle: FileHandle?
+    private var uploadRequest: HTTPRequest?
+    private var uploadLength = 0
+    private var uploaded = 0
+    private var responseFile: FileHandle?
+    private var buffer = Data(); private var finished = false; private var work: Task<Void, Never>?
+    private var deadline: Task<Void, Never>?
+    init(connection: NWConnection, handler: @escaping @Sendable (HTTPRequest) async -> HTTPResponse, authorizeUpload: @escaping @Sendable (HTTPRequest) async -> Bool, uploadDirectory: URL, diskBudget: UploadDiskBudget, realtime: RealtimeHandler?) { self.realtime = realtime; self.diskBudget = diskBudget; self.uploadDirectory = uploadDirectory; self.connection = connection; self.handler = handler; self.authorizeUpload = authorizeUpload }
+    func start() {
+        receive()
+        armDeadline(seconds: 130)
+    }
+    private func armDeadline(seconds: Int) {
+        deadline?.cancel()
+        deadline = Task { do { try await Task.sleep(for: .seconds(seconds)); self.close() } catch {} }
+    }
+    private func receive() {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, _, complete, error in
+            Task { await self.received(data, complete: complete, failed: error != nil) }
+        }
+    }
+    private func received(_ data: Data?, complete: Bool, failed: Bool) async {
+        guard !finished else { return }
+        do {
+            if uploadHandle != nil {
+                if let data { try appendUpload(data) }
+                if uploaded == uploadLength { finishUpload() }
+                else if complete || failed { close() } else { receive() }
+                return
+            }
+            if let data { buffer.append(data) }
+            if let (request, length, offset) = try AudioHTTPHeader.parse(buffer) {
+                guard await authorizeUpload(request) else { send(.error("API key required.", status: 401)); return }
+                guard !finished else { return }
+                let reservation = try await diskBudget.reserve(Int64(length) + 128 * 1024 * 1024)
+                guard !finished else { await diskBudget.release(reservation); return }
+                diskReservation = reservation
+                let directory = uploadDirectory.appendingPathComponent("Uploads")
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+                let file = directory.appendingPathComponent(UUID().uuidString)
+                FileManager.default.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600])
+                upload = file; uploadHandle = try FileHandle(forWritingTo: file); uploadRequest = request; uploadLength = length
+                try appendUpload(Data(buffer.dropFirst(offset))); buffer = Data()
+                if uploaded == uploadLength { finishUpload() }
+                else if complete || failed { close() } else { receive() }
+            } else if let request = try HTTPParser.parse(buffer) {
+                if request.path == "/v1/realtime" { dispatchRealtime(request) } else { dispatch(request) }
+            }
+            else if complete || failed { close() } else { receive() }
+        } catch let error as ModelAPIError {
+            let code: Int; switch error { case .limit: code = 413; case .unavailable: code = 503; default: code = 400 }
+            send(.error(error.localizedDescription, status: code))
+        } catch { send(.error("Could not accept this audio upload.", status: 400)) }
+    }
+    private func appendUpload(_ data: Data) throws {
+        guard uploaded + data.count <= uploadLength else { throw ModelAPIError.invalid("Pipelined upload data is unsupported.") }
+        try uploadHandle?.write(contentsOf: data); uploaded += data.count
+    }
+    private func finishUpload() {
+        try? uploadHandle?.close(); uploadHandle = nil
+        guard var request = uploadRequest else { close(); return }
+        request.upload = upload; uploadRequest = nil; dispatch(request)
+    }
+    private func dispatchRealtime(_ request: HTTPRequest) {
+        buffer = Data(); armDeadline(seconds: 1250)
+        work = Task {
+            guard await authorizeUpload(request) else { send(.error("API key required.", status: 401)); return }
+            guard let realtime else { send(.error("Realtime is unavailable.", status: 503)); return }
+            do {
+                let key = try WebSocketFrames.acceptKey(request)
+                let socket = RealtimeSocket(connection: connection)
+                try await socket.upgrade(accept: key)
+                await realtime(request, socket)
+                close()
+            } catch { send(.error("Invalid realtime upgrade.", status: 400)) }
+        }
+    }
+    private func dispatch(_ request: HTTPRequest) {
+        buffer = Data(); armDeadline(seconds: 900)
+        work = Task { let response = await handler(request); self.send(response) }
+        // Keep observing the peer while synchronous work is queued or running.
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 1) { data, _, complete, error in
+            if complete || error != nil || data?.isEmpty == false { Task { await self.close() } }
+        }
+    }
+    private func discardUpload() {
+        if let reservation = diskReservation {
+            diskReservation = nil; let diskBudget = diskBudget
+            Task { await diskBudget.release(reservation) }
+        }
+        try? uploadHandle?.close(); uploadHandle = nil
+        if let upload { try? FileManager.default.removeItem(at: upload) }; upload = nil
+    }
+    private func send(_ response: HTTPResponse) {
+        guard !finished else { return }
+        discardUpload()
+        let length: Int
+        if let file = response.file {
+            do {
+                let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+                guard size <= AudioIO.uploadLimit else { send(.error("Result exceeds 64 MiB.", status: 413)); return }
+                responseFile = try FileHandle(forReadingFrom: file); length = size
+            } catch { send(.error("Job result is no longer available.", status: 404)); return }
+        } else { length = response.body.count }
+        finished = true; deadline?.cancel(); deadline = nil
+        let header = "HTTP/1.1 \(response.status) \(response.status == 200 ? "OK" : "Result")\r\nContent-Type: \(response.type)\r\nContent-Length: \(length)\r\nConnection: close\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n\r\n"
+        if responseFile != nil {
+            armDeadline(seconds: 60)
+            connection.send(content: Data(header.utf8), completion: .contentProcessed { error in
+                Task { if error != nil { await self.close() } else { await self.sendFileChunk() } }
+            })
+        } else { connection.send(content: Data(header.utf8) + response.body, completion: .contentProcessed { _ in self.connection.cancel() }) }
+    }
+    private func sendFileChunk() {
+        guard let responseFile else { close(); return }
+        do {
+            let chunk = try responseFile.read(upToCount: 65536) ?? Data()
+            if chunk.isEmpty { close(); return }
+            connection.send(content: chunk, completion: .contentProcessed { error in
+                Task { if error != nil { await self.close() } else { await self.sendFileChunk() } }
+            })
+        } catch { close() }
+    }
+    func close() {
+        finished = true; deadline?.cancel(); deadline = nil; work?.cancel(); work = nil
+        discardUpload(); try? responseFile?.close(); responseFile = nil; connection.cancel()
+    }
+}
+
+/// Counts projected concurrent upload writes together before any private file is created.
+actor UploadDiskBudget {
+    private let directory: URL
+    private let check: @Sendable (URL, Int64) throws -> Void
+    private var reservations: [UUID: Int64] = [:]
+    init(directory: URL, check: @escaping @Sendable (URL, Int64) throws -> Void) { self.directory = directory; self.check = check }
+    func reserve(_ bytes: Int64) throws -> UUID {
+        try check(directory, reservations.values.reduce(bytes,+))
+        let id = UUID(); reservations[id] = bytes; return id
+    }
+    func release(_ id: UUID) { reservations.removeValue(forKey:id) }
+}
